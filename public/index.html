@@ -46,6 +46,7 @@
         input,select{font:inherit;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--fg);width:100%}
         button.btn{font:inherit;padding:10px 20px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:bold}
         button.btn:hover{background:var(--accent-hover)}
+        .vote{display:inline-block;min-width:54px;text-align:center;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid currentColor}
         .foot{text-align:center;margin-top:24px;font-size:12px}
         #login-container{position:fixed;top:0;left:0;width:100vw;height:100vh;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
         .login-card{background:var(--card);padding:30px;border-radius:12px;border:1px solid var(--bd);width:100%;max-width:380px;box-shadow:0 10px 25px rgba(0,0,0,0.08)}
@@ -87,6 +88,7 @@
 
         <!-- TAB: DASHBOARD -->
         <div id="tab-dashboard" class="tab-content active">
+            <!-- NIFTY CARD -->
             <div class="card">
                 <div class="hd">
                     <h3>NIFTY <span class="big" id="nifty-px">25,144.30</span> <span class="dnt">-155.0 (-0.61%)</span></h3>
@@ -102,20 +104,60 @@
                 </div>
             </div>
 
+            <!-- SENSEX CARD -->
             <div class="card">
-                <h4>Sideways-day check <span class="badge mid">TRENDING / MIXED (0/6)</span></h4>
-                <ul>
-                    <li><b class="dnt">FAIL</b> Wide CPR (range-day sign) <small>- CPR width 0.09% vs 20-day median 0.30%</small></li>
-                    <li><b class="dnt">FAIL</b> Weak trend (ADX &lt; 22) <small>- ADX 28</small></li>
-                    <li><b class="dnt">FAIL</b> Price between S1 and R1 <small>- 25,144 OUTSIDE 25,167 - 25,408</small></li>
-                    <li><b class="dnt">FAIL</b> No big gap at open <small>- gap 0.35%</small></li>
-                    <li><b class="dnt">FAIL</b> HMA flat <small>- HMA moved 16 pts in 4 bars (limit 12)</small></li>
-                    <li><b class="dnt">FAIL</b> Small range so far <small>- today 192 pts vs yesterday 242</small></li>
-                </ul>
-                <p class="sub" style="margin-top: 8px;">Condor idea only when SIDEWAYS LIKELY and price is between S1 and R1.</p>
+                <div class="hd">
+                    <h3>SENSEX <span class="big" id="sensex-px">81,592.45</span> <span class="dnt">-318.6 (-0.39%)</span></h3>
+                    <span class="badge dn">BEARISH - SELL CE / BUY PE side</span>
+                </div>
+                <p class="sub">Signals and indicators use the last completed 15-min bar: Fri 13 Nov 15:15 IST (close 81,592.45) &middot; market closed</p>
+                <div class="stats">
+                    <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
+                    <div><small>HMA slope</small><b class="upt">UP</b></div>
+                    <div><small>ADX</small><b>27</b></div>
+                    <div><small>ATR</small><b>107.1</b></div>
+                    <div><small>Paper pts (replay)</small><b class="dnt">-112</b></div>
+                </div>
             </div>
 
+            <!-- SIDEWAYS-DAY CHECK -->
             <div class="two">
+                <div class="card">
+                    <h4>Sideways-day check <span class="badge mid">TRENDING / MIXED (0/6)</span></h4>
+                    <ul>
+                        <li><b class="dnt">FAIL</b> Wide CPR (range-day sign) <small>- CPR width 0.09% vs 20-day median 0.30%</small></li>
+                        <li><b class="dnt">FAIL</b> Weak trend (ADX &lt; 22) <small>- ADX 28</small></li>
+                        <li><b class="dnt">FAIL</b> Price between S1 and R1 <small>- 25,144 OUTSIDE 25,167 - 25,408</small></li>
+                        <li><b class="dnt">FAIL</b> No big gap at open <small>- gap 0.35%</small></li>
+                        <li><b class="dnt">FAIL</b> HMA flat <small>- HMA moved 16 pts in 4 bars</small></li>
+                        <li><b class="dnt">FAIL</b> Small range so far <small>- today 192 pts vs yesterday 242</small></li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h4>Sideways-day check (Sensex) <span class="badge mid">TRENDING / MIXED (2/6)</span></h4>
+                    <ul>
+                        <li><b class="dnt">FAIL</b> Wide CPR <small>- CPR width 0.03%</small></li>
+                        <li><b class="dnt">FAIL</b> Weak trend <small>- ADX 27</small></li>
+                        <li><b class="upt">PASS</b> Price between S1 and R1 <small>- 81,592 inside</small></li>
+                        <li><b class="upt">PASS</b> No big gap at open <small>- gap 0.09%</small></li>
+                        <li><b class="dnt">FAIL</b> HMA flat <small>- moved 74 pts</small></li>
+                        <li><b class="dnt">FAIL</b> Small range so far <small>- 591 pts</small></li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- OPTION CHAIN & GEX -->
+            <div class="two">
+                <div class="card">
+                    <h4>Option chain (OI / PCR) - NIFTY</h4>
+                    <div class="stats">
+                        <div><small>PCR near ATM</small><b>0.82</b></div>
+                        <div><small>PCR total</small><b>0.83</b></div>
+                        <div><small>Put Wall</small><b class="upt">25,000</b></div>
+                        <div><small>Call Wall</small><b class="dnt">25,500</b></div>
+                        <div><small>Max Pain</small><b>25,100</b></div>
+                    </div>
+                </div>
                 <div class="card">
                     <h4>Option-seller conditions (advisory)</h4>
                     <table>
@@ -123,13 +165,28 @@
                         <tr><td>IV rank (VIX)</td><td><span class="badge up">GOOD</span></td><td><small>India VIX 15.5 is above 69% of last year</small></td></tr>
                     </table>
                 </div>
+            </div>
+
+            <!-- AGENTS & LEVELS -->
+            <div class="two">
                 <div class="card">
                     <h4>Agents (vote on direction)</h4>
                     <table>
-                        <tr><td>Trend / Supertrend</td><td><span class="badge dn">BEAR</span></td><td><small>Supertrend DOWN, below CPR</small></td></tr>
-                        <tr><td>OI / PCR</td><td><span class="badge dn">BEAR</span></td><td><small>PCR 0.82 (calls heavy = resistance)</small></td></tr>
+                        <tr><td>Trend / Supertrend</td><td><span class="vote dn">BEAR</span></td><td><small>Supertrend DOWN, below CPR</small></td></tr>
+                        <tr><td>OI / PCR</td><td><span class="vote dn">BEAR</span></td><td><small>PCR 0.82 (calls heavy = resistance)</small></td></tr>
+                        <tr><td>Breadth</td><td><span class="vote dn">BEAR</span></td><td><small>53 up / 163 down</small></td></tr>
                     </table>
                     <p style="margin-top: 12px;">Composite <b>-2</b> &rarr; <span class="badge dn">SELL CE side (bearish)</span></p>
+                </div>
+                <div class="card">
+                    <h4>Levels vs Price (Nifty)</h4>
+                    <table>
+                        <tr><td>R1</td><td>25,408</td><td class="upt">+264</td></tr>
+                        <tr><td>CPR top</td><td>25,288</td><td class="upt">+143</td></tr>
+                        <tr><td>Pivot</td><td>25,276</td><td class="upt">+131</td></tr>
+                        <tr><td>S1</td><td>25,167</td><td class="upt">+22</td></tr>
+                        <tr><td>Prev Low</td><td>25,143</td><td class="dnt">-1</td></tr>
+                    </table>
                 </div>
             </div>
         </div>
@@ -212,7 +269,6 @@
                     document.getElementById('login-err').style.display = 'block';
                 }
             } catch (err) {
-                // Fallback check if backend API call fails or runs offline
                 if (username === 'admin' && password === 'nifty2026') {
                     document.getElementById('login-container').style.display = 'none';
                     document.getElementById('portal-container').style.display = 'block';
