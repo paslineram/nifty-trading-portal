@@ -1,0 +1,13 @@
+{
+  "targets": {
+    "release": {
+      "outFile": "public/wasm/release.wasm",
+      "textFile": "public/wasm/release.wat",
+      "sourceMap": true,
+      "optimizeLevel": 3
+    }
+  },
+  "options": {
+    "bindings": "esm"
+  }
+}

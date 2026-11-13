@@ -1,0 +1,21 @@
+{
+  "name": "nifty-trading-portal",
+  "version": "1.0.0",
+  "description": "Full-stack Nifty/Sensex Trading Portal with Authentication, Dashboard, Xray Backtest, and Upstox Integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "asbuild": "asc assembly/index.ts --target release"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "csv-parser": "^3.0.0",
+    "@assemblyscript/loader": "^0.27.27"
+  },
+  "devDependencies": {
+    "assemblyscript": "^0.27.27",
+    "typescript": "^5.4.2"
+  }
+}
