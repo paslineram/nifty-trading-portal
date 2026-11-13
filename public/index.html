@@ -21,33 +21,35 @@
             --accent-hover: #0369a1;
         }
         *{box-sizing:border-box; margin:0; padding:0;}
-        body{font:15px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--fg);padding:16px;max-width:1360px;margin:auto;}
+        body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--fg);padding:14px;max-width:1440px;margin:auto;}
         header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
-        h2{margin:4px 0} h3{margin:0} h4{margin:12px 0 6px;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-        .clock,.sub,.muted,small,.foot{color:var(--mut);font-size:13px}
-        .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:16px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
-        .hd{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
-        .big{font-size:22px;margin:0 6px}
-        .badge{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid currentColor}
+        h2{margin:4px 0} h3{margin:0} h4{margin:10px 0 6px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+        .clock,.sub,.muted,small,.foot{color:var(--mut);font-size:12px}
+        .card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+        .hd{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+        .big{font-size:20px;margin:0 4px}
+        .badge{padding:3px 8px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid currentColor}
         .badge.up,.upt{color:var(--up)} .badge.dn,.dnt{color:var(--dn)} .badge.mid{color:var(--mid)}
-        .stats{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0}
-        .stats div{flex:1;min-width:90px;background:var(--bg);border-radius:8px;padding:8px 10px}
-        .stats small{display:block} .stats b{font-size:17px}
+        .stats{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+        .stats div{flex:1;min-width:75px;background:var(--bg);border-radius:6px;padding:6px 8px}
+        .stats small{display:block;font-size:11px} .stats b{font-size:15px}
         nav.tabs{display:flex;gap:8px;margin:10px 0 14px;flex-wrap:wrap}
-        nav.tabs button, nav.tabs a{display:inline-block;padding:8px 20px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--fg);text-decoration:none;font-size:15px;font-weight:600;cursor:pointer;transition:background .15s}
+        nav.tabs button, nav.tabs a{display:inline-block;padding:8px 18px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--fg);text-decoration:none;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
         nav.tabs button:hover, nav.tabs a:hover{background:var(--cpr)}
         nav.tabs button.active, nav.tabs a.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
         .tab-content{display:none;}
         .tab-content.active{display:block;}
-        .two{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:720px){.two{grid-template-columns:1fr}}
-        table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--bd);padding:6px 8px;font-size:13px;text-align:left}
+        .dual-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+        @media(max-width:1024px){.dual-grid{grid-template-columns:1fr}}
+        .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:720px){.two{grid-template-columns:1fr}}
+        table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--bd);padding:5px 6px;font-size:12px;text-align:left}
         form.f{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
         form.f label{font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:4px;flex:1;min-width:180px}
         input,select{font:inherit;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--fg);width:100%}
         button.btn{font:inherit;padding:10px 20px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:bold}
         button.btn:hover{background:var(--accent-hover)}
-        .vote{display:inline-block;min-width:54px;text-align:center;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid currentColor}
-        .chart{width:100%;height:auto;background:var(--bg);border-radius:8px;border:1px solid var(--bd);margin:10px 0;}
+        .vote{display:inline-block;min-width:50px;text-align:center;padding:1px 6px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid currentColor}
+        .chart{width:100%;height:auto;background:var(--bg);border-radius:6px;border:1px solid var(--bd);margin:8px 0;}
         .ob.c{fill:var(--dn);opacity:0.8;} .ob.p{fill:var(--up);opacity:0.8;}
         .foot{text-align:center;margin-top:24px;font-size:12px}
         #login-container{position:fixed;top:0;left:0;width:100vw;height:100vh;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
@@ -77,7 +79,7 @@
     <div id="portal-container" style="display: none;">
         <header>
             <h2>Paslin &amp; Nifty/Sensex Dashboard</h2>
-            <span class="clock" id="live-clock">Fri 13 Nov 2026 22:54:52 IST &middot; <b class="upt">MARKET OPEN</b></span>
+            <span class="clock" id="live-clock">Fri 13 Nov 2026 22:54:52 IST &middot; <b class="upt">MARKET CLOSED</b></span>
         </header>
 
         <nav class="tabs">
@@ -88,176 +90,182 @@
             <button class="tab-btn" onclick="handleLogout()" style="color: var(--dn); margin-left: auto;">Logout</button>
         </nav>
 
-        <!-- TAB: DASHBOARD -->
+        <!-- TAB: DASHBOARD (DUAL SIDE-BY-SIDE NIFTY & SENSEX LAYOUT) -->
         <div id="tab-dashboard" class="tab-content active">
-            <!-- NIFTY CARD -->
-            <div class="card">
-                <div class="hd">
-                    <h3>NIFTY <span class="big" id="nifty-px">25,144.30</span> <span class="dnt">-155.0 (-0.61%)</span></h3>
-                    <span class="badge dn">BEARISH - SELL CE / BUY PE side</span>
-                </div>
-                <p class="sub">Signals and indicators use the last completed 15-min bar: Fri 13 Nov 15:15 IST (close 25,144.30) &middot; market closed</p>
-                <div class="stats">
-                    <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
-                    <div><small>HMA slope</small><b class="upt">UP</b></div>
-                    <div><small>ADX</small><b>28</b></div>
-                    <div><small>ATR</small><b>34.8</b></div>
-                    <div><small>Paper pts (replay)</small><b class="dnt">-30</b></div>
-                </div>
-            </div>
-
-            <!-- PRICE & INDICATOR CHART MODULE -->
-            <div class="card">
-                <h4>Price Action &amp; Supertrend Chart (Nifty)</h4>
-                <svg viewBox="0 0 920 400" class="chart" role="img" aria-label="price and indicator chart">
-                    <!-- Background Grid Lines -->
-                    <line x1="46" y1="50" x2="808" y2="50" stroke="var(--bd)" stroke-dasharray="4"/>
-                    <line x1="46" y1="130" x2="808" y2="130" stroke="var(--bd)" stroke-dasharray="4"/>
-                    <line x1="46" y1="210" x2="808" y2="210" stroke="var(--bd)" stroke-dasharray="4"/>
-                    <line x1="46" y1="290" x2="808" y2="290" stroke="var(--bd)" stroke-dasharray="4"/>
-                    
-                    <!-- Simulated Candlestick Wicks & Bodies -->
-                    <g stroke="var(--fg)" stroke-width="1.5">
-                        <line x1="100" y1="80" x2="100" y2="160" />
-                        <rect x="94" y="100" width="12" height="40" fill="var(--up)" stroke="var(--up)" />
-                        
-                        <line x1="160" y1="70" x2="160" y2="150" />
-                        <rect x="154" y="90" width="12" height="30" fill="var(--dn)" stroke="var(--dn)" />
-
-                        <line x1="220" y1="90" x2="220" y2="180" />
-                        <rect x="214" y="110" width="12" height="50" fill="var(--dn)" stroke="var(--dn)" />
-
-                        <line x1="280" y1="120" x2="280" y2="210" />
-                        <rect x="274" y="140" width="12" height="40" fill="var(--up)" stroke="var(--up)" />
-
-                        <line x1="340" y1="100" x2="340" y2="190" />
-                        <rect x="334" y="120" width="12" height="45" fill="var(--dn)" stroke="var(--dn)" />
-                    </g>
-
-                    <!-- Supertrend / HMA Overlay Path -->
-                    <path d="M 90 120 Q 180 80 270 160 T 450 180 T 630 140 T 800 200" fill="none" stroke="var(--hma)" stroke-width="2.5" />
-                    
-                    <!-- Level Annotations on Right Axis -->
-                    <text x="815" y="65" fill="var(--dn)" font-size="11">R1: 25,408</text>
-                    <text x="815" y="135" fill="var(--px)" font-size="11">CPR: 25,288</text>
-                    <text x="815" y="215" fill="var(--up)" font-size="11">S1: 25,167</text>
-                    <text x="815" y="295" fill="var(--dn)" font-size="11">Prev Low: 25,143</text>
-                </svg>
-            </div>
-
-            <!-- SENSEX CARD -->
-            <div class="card">
-                <div class="hd">
-                    <h3>SENSEX <span class="big" id="sensex-px">81,592.45</span> <span class="dnt">-318.6 (-0.39%)</span></h3>
-                    <span class="badge dn">BEARISH - SELL CE / BUY PE side</span>
-                </div>
-                <p class="sub">Signals and indicators use the last completed 15-min bar: Fri 13 Nov 15:15 IST (close 81,592.45) &middot; market closed</p>
-                <div class="stats">
-                    <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
-                    <div><small>HMA slope</small><b class="upt">UP</b></div>
-                    <div><small>ADX</small><b>27</b></div>
-                    <div><small>ATR</small><b>107.1</b></div>
-                    <div><small>Paper pts (replay)</small><b class="dnt">-112</b></div>
-                </div>
-            </div>
-
-            <!-- SIDEWAYS-DAY CHECK -->
-            <div class="two">
-                <div class="card">
-                    <h4>Sideways-day check <span class="badge mid">TRENDING / MIXED (0/6)</span></h4>
-                    <ul>
-                        <li><b class="dnt">FAIL</b> Wide CPR (range-day sign) <small>- CPR width 0.09% vs 20-day median 0.30%</small></li>
-                        <li><b class="dnt">FAIL</b> Weak trend (ADX &lt; 22) <small>- ADX 28</small></li>
-                        <li><b class="dnt">FAIL</b> Price between S1 and R1 <small>- 25,144 OUTSIDE 25,167 - 25,408</small></li>
-                        <li><b class="dnt">FAIL</b> No big gap at open <small>- gap 0.35%</small></li>
-                        <li><b class="dnt">FAIL</b> HMA flat <small>- HMA moved 16 pts in 4 bars</small></li>
-                        <li><b class="dnt">FAIL</b> Small range so far <small>- today 192 pts vs yesterday 242</small></li>
-                    </ul>
-                </div>
-                <div class="card">
-                    <h4>Sideways-day check (Sensex) <span class="badge mid">TRENDING / MIXED (2/6)</span></h4>
-                    <ul>
-                        <li><b class="dnt">FAIL</b> Wide CPR <small>- CPR width 0.03%</small></li>
-                        <li><b class="dnt">FAIL</b> Weak trend <small>- ADX 27</small></li>
-                        <li><b class="upt">PASS</b> Price between S1 and R1 <small>- 81,592 inside</small></li>
-                        <li><b class="upt">PASS</b> No big gap at open <small>- gap 0.09%</small></li>
-                        <li><b class="dnt">FAIL</b> HMA flat <small>- moved 74 pts</small></li>
-                        <li><b class="dnt">FAIL</b> Small range so far <small>- 591 pts</small></li>
-                    </ul>
-                </div>
-            </div>
-
-            <!-- OPTION CHAIN & OPEN INTEREST MAP (OI LADDER) -->
-            <div class="two">
-                <div class="card">
-                    <h4>Option chain (OI / PCR) - NIFTY</h4>
-                    <div class="stats">
-                        <div><small>PCR near ATM</small><b>0.82</b></div>
-                        <div><small>PCR total</small><b>0.83</b></div>
-                        <div><small>Put Wall</small><b class="upt">25,000</b></div>
-                        <div><small>Call Wall</small><b class="dnt">25,500</b></div>
-                        <div><small>Max Pain</small><b>25,100</b></div>
+            <div class="dual-grid">
+                
+                <!-- ================= LEFT COLUMN: NIFTY ================= -->
+                <div>
+                    <!-- Nifty Header Card -->
+                    <div class="card">
+                        <div class="hd">
+                            <h3>NIFTY <span class="big">25,144.30</span> <span class="dnt">-155.0 (-0.61%)</span></h3>
+                            <span class="badge dn">BEARISH - SELL CE / BUY PE</span>
+                        </div>
+                        <p class="sub" style="margin-top:4px;">15-min bar: Fri 13 Nov 15:15 IST &middot; market closed</p>
+                        <div class="stats">
+                            <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
+                            <div><small>HMA slope</small><b class="upt">UP</b></div>
+                            <div><small>ADX</small><b>28</b></div>
+                            <div><small>ATR</small><b>34.8</b></div>
+                            <div><small>Paper Pts</small><b class="dnt">-30</b></div>
+                        </div>
                     </div>
-                    <!-- Open Interest Map / Ladder SVG -->
-                    <svg viewBox="0 0 560 150" class="chart" role="img" aria-label="open interest by strike">
-                        <g>
-                            <rect class="ob c" x="35" y="40" width="18" height="70"><title>25,000 CE OI 45.2L</title></rect>
-                            <rect class="ob p" x="55" y="20" width="18" height="90"><title>25,000 PE OI 62.1L</title></rect>
 
-                            <rect class="ob c" x="115" y="30" width="18" height="80"><title>25,100 CE OI 52.0L</title></rect>
-                            <rect class="ob p" x="135" y="50" width="18" height="60"><title>25,100 PE OI 44.5L</title></rect>
+                    <!-- Nifty Sideways-Day Check -->
+                    <div class="card">
+                        <h4>Sideways-day check <span class="badge mid">TRENDING (0/6)</span></h4>
+                        <ul style="padding-left:14px; font-size:12px; line-height:1.5;">
+                            <li><b class="dnt">FAIL</b> Wide CPR <small>- width 0.09% vs median 0.30%</small></li>
+                            <li><b class="dnt">FAIL</b> Weak trend <small>- ADX 28</small></li>
+                            <li><b class="dnt">FAIL</b> Price between S1 &amp; R1 <small>- 25,144 outside</small></li>
+                            <li><b class="dnt">FAIL</b> No big gap <small>- gap 0.35%</small></li>
+                            <li><b class="dnt">FAIL</b> HMA flat <small>- moved 16 pts in 4 bars</small></li>
+                            <li><b class="dnt">FAIL</b> Small range <small>- 192 pts vs yesterday 242</small></li>
+                        </ul>
+                    </div>
 
-                            <rect class="ob c" x="195" y="15" width="18" height="95"><title>25,200 CE OI 78.3L</title></rect>
-                            <rect class="ob p" x="215" y="70" width="18" height="40"><title>25,200 PE OI 28.1L</title></rect>
+                    <!-- Nifty Price Chart -->
+                    <div class="card">
+                        <h4>Nifty Price Action &amp; Levels Chart</h4>
+                        <svg viewBox="0 0 460 220" class="chart" role="img" aria-label="nifty chart">
+                            <line x1="30" y1="30" x2="400" y2="30" stroke="var(--bd)" stroke-dasharray="3"/>
+                            <line x1="30" y1="90" x2="400" y2="90" stroke="var(--bd)" stroke-dasharray="3"/>
+                            <line x1="30" y1="150" x2="400" y2="150" stroke="var(--bd)" stroke-dasharray="3"/>
+                            <!-- Candles -->
+                            <g stroke="var(--fg)" stroke-width="1.2">
+                                <line x1="60" y1="40" x2="60" y2="110"/><rect x="55" y="60" width="10" height="35" fill="var(--up)"/>
+                                <line x1="110" y1="50" x2="110" y2="130"/><rect x="105" y="70" width="10" height="40" fill="var(--dn)"/>
+                                <line x1="160" y1="80" x2="160" y2="160"/><rect x="155" y="100" width="10" height="45" fill="var(--dn)"/>
+                                <line x1="210" y1="100" x2="210" y2="175"/><rect x="205" y="115" width="10" height="30" fill="var(--up)"/>
+                                <line x1="260" y1="90" x2="260" y2="165"/><rect x="255" y="110" width="10" height="40" fill="var(--dn)"/>
+                            </g>
+                            <path d="M 50 85 Q 130 65 210 140 T 390 125" fill="none" stroke="var(--hma)" stroke-width="2"/>
+                            <text x="408" y="35" fill="var(--dn)" font-size="10">R1: 25,408</text>
+                            <text x="408" y="95" fill="var(--px)" font-size="10">Pivot: 25,276</text>
+                            <text x="408" y="155" fill="var(--up)" font-size="10">S1: 25,167</text>
+                        </svg>
+                    </div>
 
-                            <rect class="ob c" x="275" y="10" width="18" height="100"><title>25,300 CE OI 91.4L</title></rect>
-                            <rect class="ob p" x="295" y="85" width="18" height="25"><title>25,300 PE OI 18.2L</title></rect>
+                    <!-- Nifty Option Chain & OI Ladder -->
+                    <div class="card">
+                        <h4>Option chain (OI / PCR) - Nifty</h4>
+                        <div class="stats">
+                            <div><small>PCR ATM</small><b>0.82</b></div>
+                            <div><small>Put Wall</small><b class="upt">25,000</b></div>
+                            <div><small>Call Wall</small><b class="dnt">25,500</b></div>
+                            <div><small>Max Pain</small><b>25,100</b></div>
+                        </div>
+                        <svg viewBox="0 0 460.0 120" class="chart" role="img" aria-label="nifty oi ladder">
+                            <g>
+                                <rect class="ob c" x="30" y="30" width="14" height="60"/><rect class="ob p" x="46" y="15" width="14" height="75"/>
+                                <rect class="ob c" x="90" y="25" width="14" height="65"/><rect class="ob p" x="106" y="45" width="14" height="45"/>
+                                <rect class="ob c" x="150" y="10" width="14" height="80"/><rect class="ob p" x="166" y="60" width="14" height="30"/>
+                                <rect class="ob c" x="210" y="8" width="14" height="82"/><rect class="ob p" x="226" y="70" width="14" height="20"/>
+                                <rect class="ob c" x="270" y="5" width="14" height="85"/><rect class="ob p" x="286" y="80" width="14" height="10"/>
+                                <rect class="ob c" x="330" y="2" width="14" height="88"/><rect class="ob p" x="346" y="85" width="14" height="5"/>
+                            </g>
+                        </svg>
+                    </div>
 
-                            <rect class="ob c" x="355" y="5" width="18" height="105"><title>25,400 CE OI 110.8L</title></rect>
-                            <rect class="ob p" x="375" y="100" width="18" height="10"><title>25,400 PE OI 8.4L</title></rect>
-
-                            <rect class="ob c" x="435" y="2" width="18" height="108"><title>25,500 CE OI 135.0L</title></rect>
-                            <rect class="ob p" x="455" y="105" width="18" height="5"><title>25,500 PE OI 4.1L</title></rect>
-                        </g>
-                        <text x="45" y="138" font-size="10" text-anchor="middle">25000</text>
-                        <text x="125" y="138" font-size="10" text-anchor="middle">25100</text>
-                        <text x="205" y="138" font-size="10" text-anchor="middle">25200</text>
-                        <text x="285" y="138" font-size="10" text-anchor="middle">25300</text>
-                        <text x="365" y="138" font-size="10" text-anchor="middle">25400</text>
-                        <text x="445" y="138" font-size="10" text-anchor="middle">25500</text>
-                    </svg>
-                    <p class="sub" style="text-align:center; font-size:11px;">Open interest by strike (near ATM): <span style="display:inline-block;width:10px;height:10px;background:var(--dn)"></span> Calls &nbsp; <span style="display:inline-block;width:10px;height:10px;background:var(--up)"></span> Puts</p>
+                    <!-- Nifty Gamma & Agents -->
+                    <div class="card">
+                        <h4>Option-seller conditions &amp; Agents</h4>
+                        <table>
+                            <tr><td>Gamma (GEX)</td><td><span class="badge up">GOOD</span></td><td><small>+12,349 Cr: dealers dampen moves</small></td></tr>
+                            <tr><td>Trend Agent</td><td><span class="vote dn">BEAR</span></td><td><small>Supertrend DOWN, below CPR</small></td></tr>
+                            <tr><td>OI / PCR Agent</td><td><span class="vote dn">BEAR</span></td><td><small>PCR 0.82 (calls heavy)</small></td></tr>
+                        </table>
+                        <p style="margin-top:8px;">Composite: <b>-2</b> &rarr; <span class="badge dn">SELL CE side (bearish)</span></p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h4>Option-seller conditions (advisory)</h4>
-                    <table>
-                        <tr><td>Gamma (GEX)</td><td><span class="badge up">GOOD</span></td><td><small>POSITIVE +12,349 Cr: dealers dampen moves</small></td></tr>
-                        <tr><td>IV rank (VIX)</td><td><span class="badge up">GOOD</span></td><td><small>India VIX 15.5 is above 69% of last year</small></td></tr>
-                    </table>
-                </div>
-            </div>
 
-            <!-- AGENTS & LEVELS -->
-            <div class="two">
-                <div class="card">
-                    <h4>Agents (vote on direction)</h4>
-                    <table>
-                        <tr><td>Trend / Supertrend</td><td><span class="vote dn">BEAR</span></td><td><small>Supertrend DOWN, below CPR</small></td></tr>
-                        <tr><td>OI / PCR</td><td><span class="vote dn">BEAR</span></td><td><small>PCR 0.82 (calls heavy = resistance)</small></td></tr>
-                        <tr><td>Breadth</td><td><span class="vote dn">BEAR</span></td><td><small>53 up / 163 down</small></td></tr>
-                    </table>
-                    <p style="margin-top: 12px;">Composite <b>-2</b> &rarr; <span class="badge dn">SELL CE side (bearish)</span></p>
+                <!-- ================= RIGHT COLUMN: SENSEX ================= -->
+                <div>
+                    <!-- Sensex Header Card -->
+                    <div class="card">
+                        <div class="hd">
+                            <h3>SENSEX <span class="big">81,592.45</span> <span class="dnt">-318.6 (-0.39%)</span></h3>
+                            <span class="badge dn">BEARISH - SELL CE / BUY PE</span>
+                        </div>
+                        <p class="sub" style="margin-top:4px;">15-min bar: Fri 13 Nov 15:15 IST &middot; market closed</p>
+                        <div class="stats">
+                            <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
+                            <div><small>HMA slope</small><b class="upt">UP</b></div>
+                            <div><small>ADX</small><b>27</b></div>
+                            <div><small>ATR</small><b>107.1</b></div>
+                            <div><small>Paper Pts</small><b class="dnt">-112</b></div>
+                        </div>
+                    </div>
+
+                    <!-- Sensex Sideways-Day Check -->
+                    <div class="card">
+                        <h4>Sideways-day check (Sensex) <span class="badge mid">TRENDING (2/6)</span></h4>
+                        <ul style="padding-left:14px; font-size:12px; line-height:1.5;">
+                            <li><b class="dnt">FAIL</b> Wide CPR <small>- width 0.03%</small></li>
+                            <li><b class="dnt">FAIL</b> Weak trend <small>- ADX 27</small></li>
+                            <li><b class="upt">PASS</b> Price between S1 &amp; R1 <small>- 81,592 inside</small></li>
+                            <li><b class="upt">PASS</b> No big gap <small>- gap 0.09%</small></li>
+                            <li><b class="dnt">FAIL</b> HMA flat <small>- moved 74 pts</small></li>
+                            <li><b class="dnt">FAIL</b> Small range <small>- 591 pts</small></li>
+                        </ul>
+                    </div>
+
+                    <!-- Sensex Price Chart -->
+                    <div class="card">
+                        <h4>Sensex Price Action &amp; Levels Chart</h4>
+                        <svg viewBox="0 0 460 220" class="chart" role="img" aria-label="sensex chart">
+                            <line x1="30" y1="30" x2="400" y2="30" stroke="var(--bd)" stroke-dasharray="3"/>
+                            <line x1="30" y1="90" x2="400" y2="90" stroke="var(--bd)" stroke-dasharray="3"/>
+                            <line x1="30" y1="150" x2="400" y2="150" stroke="var(--bd)" stroke-dasharray="3"/>
+                            <!-- Candles -->
+                            <g stroke="var(--fg)" stroke-width="1.2">
+                                <line x1="60" y1="50" x2="60" y2="120"/><rect x="55" y="70" width="10" height="30" fill="var(--up)"/>
+                                <line x1="110" y1="40" x2="110" y2="115"/><rect x="105" y="60" width="10" height="35" fill="var(--dn)"/>
+                                <line x1="160" y1="70" x2="160" y2="145"/><rect x="155" y="85" width="10" height="40" fill="var(--dn)"/>
+                                <line x1="210" y1="90" x2="210" y2="165"/><rect x="205" y="105" width="10" height="35" fill="var(--up)"/>
+                                <line x1="260" y1="80" x2="260" y2="155"/><rect x="255" y="95" width="10" height="38" fill="var(--dn)"/>
+                            </g>
+                            <path d="M 50 90 Q 130 70 210 130 T 390 115" fill="none" stroke="var(--hma)" stroke-width="2"/>
+                            <text x="408" y="35" fill="var(--dn)" font-size="10">R1: 82,299</text>
+                            <text x="408" y="95" fill="var(--px)" font-size="10">Pivot: 81,938</text>
+                            <text x="408" y="155" fill="var(--up)" font-size="10">S1: 81,550</text>
+                        </svg>
+                    </div>
+
+                    <!-- Sensex Option Chain & OI Ladder -->
+                    <div class="card">
+                        <h4>Option chain (OI / PCR) - Sensex</h4>
+                        <div class="stats">
+                            <div><small>PCR ATM</small><b>0.83</b></div>
+                            <div><small>Put Wall</small><b class="upt">81,500</b></div>
+                            <div><small>Call Wall</small><b class="dnt">81,500</b></div>
+                            <div><small>Max Pain</small><b>81,500</b></div>
+                        </div>
+                        <svg viewBox="0 0 460 120" class="chart" role="img" aria-label="sensex oi ladder">
+                            <g>
+                                <rect class="ob c" x="30" y="35" width="14" height="55"/><rect class="ob p" x="46" y="20" width="14" height="70"/>
+                                <rect class="ob c" x="90" y="30" width="14" height="60"/><rect class="ob p" x="106" y="50" width="14" height="40"/>
+                                <rect class="ob c" x="150" y="15" width="14" height="75"/><rect class="ob p" x="166" y="65" width="14" height="25"/>
+                                <rect class="ob c" x="210" y="10" width="14" height="80"/><rect class="ob p" x="226" y="75" width="14" height="15"/>
+                                <rect class="ob c" x="270" y="6" width="14" height="84"/><rect class="ob p" x="286" y="82" width="14" height="8"/>
+                                <rect class="ob c" x="330" y="4" width="14" height="86"/><rect class="ob p" x="346" y="86" width="14" height="4"/>
+                            </g>
+                        </svg>
+                    </div>
+
+                    <!-- Sensex Gamma & Agents -->
+                    <div class="card">
+                        <h4>Option-seller conditions &amp; Agents</h4>
+                        <table>
+                            <tr><td>Gamma (GEX)</td><td><span class="badge up">GOOD</span></td><td><small>+2,728 Cr: dealers dampen moves</small></td></tr>
+                            <tr><td>Trend Agent</td><td><span class="vote mid">NEUT</span></td><td><small>Supertrend DOWN, HMA UP</small></td></tr>
+                            <tr><td>OI / PCR Agent</td><td><span class="vote mid">NEUT</span></td><td><small>PCR 0.83 at put wall</small></td></tr>
+                        </table>
+                        <p style="margin-top:8px;">Composite: <b>-1</b> &rarr; <span class="badge mid">NO CLEAR EDGE</span></p>
+                    </div>
                 </div>
-                <div class="card">
-                    <h4>Levels vs Price (Nifty)</h4>
-                    <table>
-                        <tr><td>R1</td><td>25,408</td><td class="upt">+264</td></tr>
-                        <tr><td>CPR top</td><td>25,288</td><td class="upt">+143</td></tr>
-                        <tr><td>Pivot</td><td>25,276</td><td class="upt">+131</td></tr>
-                        <tr><td>S1</td><td>25,167</td><td class="upt">+22</td></tr>
-                        <tr><td>Prev Low</td><td>25,143</td><td class="dnt">-1</td></tr>
-                    </table>
-                </div>
+
             </div>
         </div>
 
@@ -336,32 +344,4 @@
                     document.getElementById('login-container').style.display = 'none';
                     document.getElementById('portal-container').style.display = 'block';
                 } else {
-                    document.getElementById('login-err').style.display = 'block';
-                }
-            } catch (err) {
-                if (username === 'admin' && password === 'nifty2026') {
-                    document.getElementById('login-container').style.display = 'none';
-                    document.getElementById('portal-container').style.display = 'block';
-                } else {
-                    document.getElementById('login-err').style.display = 'block';
-                }
-            }
-        }
-
-        function handleLogout() {
-            document.getElementById('portal-container').style.display = 'none';
-            document.getElementById('login-container').style.display = 'flex';
-        }
-
-        function runBacktest(e) {
-            e.preventDefault();
-            document.getElementById('backtest-results').style.display = 'block';
-        }
-
-        function saveSettings(e) {
-            e.preventDefault();
-            alert('Settings saved successfully!');
-        }
-    </script>
-</body>
-</html>
+                    document.getElementById('login-err').style
