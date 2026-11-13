@@ -38,7 +38,6 @@ let tradeHistory = [
 // API Endpoints
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    // Default secure credentials or env check
     const adminUser = process.env.ADMIN_USER || 'admin';
     const adminPass = process.env.ADMIN_PASS || 'nifty2026';
 
@@ -64,11 +63,9 @@ app.get('/api/dashboard', (req, res) => {
 });
 
 app.post('/api/backtest', (req, res) => {
-    // Xray backtest runner simulation returning rich performance metrics
     const { instrument, lotSize, obMaxAge, impATR } = req.body;
     console.log(`[XRAY BACKTEST] Running simulation for ${instrument} with lot size ${lotSize}...`);
     
-    // Simulated backtest results based on strategy parameters
     const results = {
         totalTrades: 142,
         winRate: '64.8%',
