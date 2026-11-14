@@ -225,7 +225,7 @@ app.post('/api/bot/toggle', (req, res) => {
 });
 
 if (require.main === module) {
-    app.listen(PORT, () => console.log(`Nifty Trading Portal running on port ${PORT}`));
+    app.listen(PORT, '0.0.0.0', () => console.log(`Nifty Trading Portal running on port ${PORT}`));
 }
 
 module.exports = app;
