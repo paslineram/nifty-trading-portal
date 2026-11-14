@@ -176,6 +176,29 @@ setInterval(tick, 1000); tick();
 // ---------- Live dashboard rendering (matches PDF layout) ----------
 let MKT = null, DETAIL = 'NIFTY';
 
+function levelsChart(d) {
+  const vals = d.levels.map(l => l.v).concat(d.price);
+  const hi = Math.max(...vals), lo = Math.min(...vals), pad = (hi - lo) * 0.08;
+  const y = v => 15 + (1 - (v - (lo - pad)) / ((hi + pad) - (lo - pad))) * 210;
+  let t = '';
+  d.levels.forEach(l => {
+    const sup = /^S|Low/.test(l.name), cpr = /CPR|Pivot/.test(l.name);
+    const c = cpr ? 'var(--px)' : sup ? 'var(--up)' : 'var(--dn)';
+    t += `<line x1="30" y1="${y(l.v)}" x2="400" y2="${y(l.v)}" stroke="${c}" stroke-dasharray="${cpr ? 2 : 4}"/><text x="405" y="${y(l.v) + 3}" font-size="9" fill="${c}">${l.name} ${fmt(l.v)}</text>`;
+  });
+  t += `<line x1="30" y1="${y(d.price)}" x2="400" y2="${y(d.price)}" stroke="var(--fg)" stroke-width="1.5"/><text x="30" y="${y(d.price) - 4}" font-size="10" font-weight="700">LTP ${fmt(d.price)}</text>`;
+  return `<svg viewBox="0 0 500 240" class="chart">${t}</svg>`;
+}
+function oiChart(ladder) {
+  const mx = Math.max(...ladder.flatMap(r => [r.call, r.put]));
+  let t = '';
+  ladder.forEach((r, i) => {
+    const x = 30 + i * 70, hc = r.call / mx * 75, hp = r.put / mx * 75;
+    t += `<rect x="${x}" y="${85 - hc}" width="14" height="${hc}" fill="var(--dn)" opacity=".8"/><rect x="${x + 16}" y="${85 - hp}" width="14" height="${hp}" fill="var(--up)" opacity=".8"/><text x="${x + 15}" y="100" font-size="9" text-anchor="middle">${r.strike}</text>`;
+  });
+  return `<svg viewBox="0 0 460 110" class="chart">${t}</svg><p class="sub" style="text-align:center;font-size:10px">Red = Calls, Green = Puts</p>`;
+}
+
 function headerCard(d, asOf, open) {
   return `<div class="card" style="margin:10px 0">
     <div class="hd"><h3>${d.key} <span class="big">${fmt(d.price)}</span> <span class="${cls(d.change)}">${d.change > 0 ? '+' : ''}${d.change} (${d.changePct}%)</span></h3>
@@ -203,7 +226,7 @@ function chainCard(d) {
       <div><small>PCR near ATM</small><b>${c.pcrAtm}</b></div><div><small>PCR total</small><b>${c.pcrTotal}</b></div>
       <div><small>Put Wall</small><b class="upt">${fmt(c.putWall)}</b></div><div><small>Call Wall</small><b class="dnt">${fmt(c.callWall)}</b></div>
       <div><small>Max Pain</small><b>${fmt(c.maxPain)}</b></div>
-    </div></div>`;
+    </div>${oiChart(c.ladder)}</div>`;
 }
 
 function sellerCard(d) {
@@ -223,6 +246,7 @@ function agentsCard(d) {
 function levelsCard(d) {
   const rows = d.levels.filter(l => l.name !== 'R2' && l.name !== 'CPR bot');
   return `<div class="card"><h4>Levels vs price (${d.key})</h4>
+    ${levelsChart(d)}
     <table class="kv">${rows.map(l => { const diff = Math.round(l.v - d.price); return `<tr><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${diff < 0 ? 'dnt' : 'upt'}">${diff > 0 ? '+' : ''}${diff}</td></tr>`; }).join('')}</table></div>`;
 }
 
