@@ -629,7 +629,8 @@ async function fetchOptionChainData(upstoxKey, spotPrice, step, token, todayYmd)
     }
 }
 
-async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token) {
+async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode = 'BOTH') {
+    const signalsEnabled = mode === 'BOTH' || mode === inst.key;
     const [candles15m, daily] = await Promise.all([
         fetchCandles15m(inst.upstoxKey, todayYmd),
         fetchDailyCandles(inst.upstoxKey, todayYmd, 45)
@@ -853,8 +854,12 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token) {
     if (hourly.dir === 'BULL') ceReasons.push('1-hour trend is against it');
     if (!ceReasons.length) ceReasons.push('waiting for fresh bearish OB/FVG retest');
 
+    const peText = signalsEnabled ? peReasons.join('; ') : `Signals paused (Settings set to ${mode} only)`;
+    const ceText = signalsEnabled ? ceReasons.join('; ') : `Signals paused (Settings set to ${mode} only)`;
+
     return {
         key: inst.key,
+        signalsEnabled,
         price: spotPrice,
         change,
         changePct,
@@ -864,21 +869,21 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token) {
         hmaSlope,
         adx,
         atr,
-        paperPts: replay.paperPts,
+        paperPts: signalsEnabled ? replay.paperPts : 0,
         sideways,
         days: last3Days.map(formatDayLabel),
         dayCounts,
         candles: chartCandles.map(({ o, h, l, c }) => ({ o, h, l, c })),
         hma,
         st,
-        marks: replay.marks,
+        marks: signalsEnabled ? replay.marks : [],
         chain,
         seller,
         agents,
         composite,
         levels,
-        why: { pe: peReasons.join('; '), ce: ceReasons.join('; ') },
-        signals: replay.signals,
+        why: { pe: peText, ce: ceText },
+        signals: signalsEnabled ? replay.signals : [],
         latestTs: latestBar.ts
     };
 }
@@ -897,10 +902,12 @@ async function getIndiaVixStats(todayYmd, quotes) {
     return { current, pctAbove, rank };
 }
 
-async function getLiveMarketSnapshot(token = '') {
-    const cacheKey = token ? token.slice(-12) : 'no-token';
+async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', force = false) {
+    const rawMode = String(selectedInstrument || 'BOTH').toUpperCase();
+    const mode = ['NIFTY', 'SENSEX', 'BOTH'].includes(rawMode) ? rawMode : 'BOTH';
+    const cacheKey = `${token ? token.slice(-12) : 'no-token'}:${mode}`;
     const hit = cache.get(cacheKey);
-    if (hit && (Date.now() - hit.ts) < CACHE_TTL_MS) {
+    if (!force && hit && (Date.now() - hit.ts) < CACHE_TTL_MS) {
         return hit.data;
     }
 
@@ -910,11 +917,12 @@ async function getLiveMarketSnapshot(token = '') {
     const vixInfo = await getIndiaVixStats(ist.ymd, quoteRes.quotes);
 
     const instruments = await Promise.all(
-        INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token))
+        INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token, mode))
     );
 
     const latestTs = instruments.map(i => i.latestTs).filter(Boolean).sort().pop();
-    const asOf = quoteRes.quotes ? formatAsOf(new Date().toISOString()) : formatAsOf(latestTs);
+    const fetchedAt = new Date().toISOString();
+    const asOf = quoteRes.quotes ? formatAsOf(fetchedAt) : formatAsOf(latestTs);
 
     const notices = [];
     if (quoteRes.quotes) {
@@ -922,10 +930,13 @@ async function getLiveMarketSnapshot(token = '') {
     } else {
         notices.push(`Spot candles & technicals are live from Upstox (${asOf}). Live quote & option chain need a valid Upstox token in Settings (${quoteRes.error}).`);
     }
+    notices.push(`Signal filter: ${mode === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : mode + ' only'}.`);
 
     const data = {
         asOf,
+        fetchedAt,
         marketOpen,
+        activeInstrument: mode,
         source: quoteRes.quotes ? 'upstox-live' : 'upstox-candles',
         notice: notices.join(' '),
         instruments,

@@ -1,0 +1,5 @@
+node_modules/
+.env
+.env.local
+public/wasm/
+.DS_Store

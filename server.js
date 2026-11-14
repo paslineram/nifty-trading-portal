@@ -13,7 +13,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let appConfig = {
     upstoxToken: process.env.UPSTOX_ACCESS_TOKEN || '',
-    instrument: 'NIFTY',
+    instrument: 'BOTH',
     lotSize: 25,
     actionType: 'BOTH',
     maxTrades: 3,
@@ -42,8 +42,10 @@ app.post('/api/login', (req, res) => {
 });
 
 app.get('/api/market', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
-        const data = await getLiveMarketSnapshot(appConfig.upstoxToken);
+        const force = req.query.force === '1';
+        const data = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, force);
         res.json(data);
     } catch (err) {
         res.status(502).json({ error: err?.message || 'Failed to load Upstox market data' });
@@ -137,7 +139,12 @@ app.post('/api/settings', async (req, res) => {
     const allowed = ['upstoxToken', 'instrument', 'lotSize', 'actionType', 'maxTrades', 'obMaxAge', 'impATR'];
     for (const key of allowed) {
         if (body[key] !== undefined && body[key] !== '') {
-            appConfig[key] = body[key];
+            if (key === 'instrument') {
+                const inst = String(body[key]).toUpperCase();
+                if (['NIFTY', 'SENSEX', 'BOTH'].includes(inst)) appConfig.instrument = inst;
+            } else {
+                appConfig[key] = body[key];
+            }
         }
     }
     settingsSavedAt = new Date().toISOString();

@@ -86,7 +86,16 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     <button class="tab-btn" onclick="handleLogout()" style="color:var(--dn);margin-left:auto">Logout</button>
   </nav>
 
-  <div id="tab-dashboard" class="tab-content active"><div id="live-grid"><p class="sub">Loading…</p></div></div>
+  <div id="tab-dashboard" class="tab-content active">
+    <div id="live-refresh-bar" class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span id="live-notice" class="sub">Loading market data…</span>
+      <span style="display:flex;align-items:center;gap:8px">
+        <small id="live-refresh-status">Auto-refresh in 30s</small>
+        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadLive(true)">Refresh</button>
+      </span>
+    </div>
+    <div id="live-grid"><p class="sub">Loading…</p></div>
+  </div>
 
   <div id="tab-xray" class="tab-content">
     <div class="card"><h3>X-Ray: recent signals</h3><div id="xray-body" style="margin-top:8px"></div></div>
@@ -96,7 +105,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     <div class="card">
       <h3>Backtest Simulation</h3>
       <form class="f" style="margin:12px 0" onsubmit="runBacktest(event)">
-        <label>Instrument <select id="bt-inst"><option>NIFTY</option><option>SENSEX</option></select></label>
+        <label>Instrument <select id="bt-inst"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
         <label>Lot Size <input type="number" id="bt-lots" value="25"></label>
         <label>Order Block Max Age <input type="number" id="bt-maxage" value="25"></label>
         <button class="btn" style="margin-top:auto">Run Simulation</button>
@@ -124,7 +133,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     <div class="card"><h3>Portal &amp; Broker Settings</h3>
       <form class="f" style="margin-top:12px" onsubmit="saveSettings(event)">
         <label>Upstox Access Token <input type="password" id="set-token" placeholder="Paste today's token"></label>
-        <label>Default Symbol <select id="set-sym"><option>NIFTY</option><option>SENSEX</option></select></label>
+        <label>Signal Instrument <select id="set-sym"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
         <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3"></label>
         <button class="btn" style="margin-top:auto">Save Settings</button>
       </form>
@@ -184,6 +193,27 @@ function handleLogout() {
 try { if (localStorage.getItem('paslinAuth') === '1') showPortal(); } catch (_) {}
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 
+let nextRefreshIn = 30;
+let liveInFlight = false;
+let hasLiveData = false;
+let lastLiveAtMs = 0;
+
+function isLiveTabVisible() {
+  return document.getElementById('portal-container').style.display === 'block'
+    && document.getElementById('tab-dashboard').classList.contains('active')
+    && !document.hidden;
+}
+
+function updateRefreshStatus() {
+  const el = document.getElementById('live-refresh-status');
+  if (!el) return;
+  if (liveInFlight) {
+    el.textContent = 'Refreshing from Upstox…';
+  } else {
+    el.textContent = `Auto-refresh in ${Math.max(0, nextRefreshIn)}s`;
+  }
+}
+
 function tick() {
   const d = new Date();
   const s = d.toLocaleString('en-GB', {timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false});
@@ -191,8 +221,22 @@ function tick() {
   const mins = ist.getHours() * 60 + ist.getMinutes(), wd = ist.getDay();
   const open = wd >= 1 && wd <= 5 && mins >= 555 && mins <= 930;
   document.getElementById('live-clock').innerHTML = `${s.replace(',', '')} IST &middot; <b>${open ? 'MARKET OPEN' : 'MARKET CLOSED'}</b>`;
+
+  if (isLiveTabVisible() && !liveInFlight) {
+    nextRefreshIn -= 1;
+    if (nextRefreshIn <= 0) {
+      loadLive(true);
+    }
+  }
+  updateRefreshStatus();
 }
 setInterval(tick, 1000); tick();
+
+document.addEventListener('visibilitychange', () => {
+  if (isLiveTabVisible() && Date.now() - lastLiveAtMs >= 30000) {
+    loadLive(true);
+  }
+});
 
 // ---------- chart: 3 days of 15-min candles + HMA + Supertrend + levels ----------
 function priceChart(d) {
@@ -265,8 +309,9 @@ function oiChart(ladder) {
 function column(d, m) {
   const sw = d.sideways, c = d.chain, cp = d.composite;
   const open = m.marketOpen;
+  const sigOn = d.signalsEnabled !== false;
   return `<div class="card">
-    <div class="hd"><h3>${d.key}</h3><span class="big">${fmt2(d.price)}</span><b class="${tone(d.change)}">${d.change > 0 ? '+' : ''}${d.change.toFixed(1)} (${d.changePct}%)</b></div>
+    <div class="hd"><h3>${d.key}</h3><span class="big">${fmt2(d.price)}</span><b class="${tone(d.change)}">${d.change > 0 ? '+' : ''}${d.change.toFixed(1)} (${d.changePct}%)</b><span class="badge ${sigOn ? 'up' : 'mid'}" style="margin-left:auto">${sigOn ? 'SIGNALS ACTIVE' : 'WATCH ONLY'}</span></div>
     <div style="margin:6px 0"><span class="badge ${d.biasTone || 'dn'}">${d.bias}</span></div>
     <p class="sub">Signals and indicators use the last completed 15-min bar: ${m.asOf} (close ${fmt2(d.price)}) &middot; ${open ? 'market open' : 'market closed - showing last bar'}</p>
     <div class="tiles">
@@ -313,15 +358,21 @@ function column(d, m) {
       <p style="font-size:13px;margin:6px 0"><b class="upt">PE side:</b> ${d.why.pe}</p>
       <p style="font-size:13px;margin:6px 0"><b class="dnt">CE side:</b> ${d.why.ce}</p>
       <h4 style="margin-top:12px">Latest signals (replay of recent candles)</h4>
-      ${d.signals.length ? `<ul class="sig">${d.signals.map(s => `<li>${s.time} <b class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</b> @ ${s.ref} SL ${s.sl} TP1 ${s.tp1} <small>${s.setup}</small></li>`).join('')}</ul>` : '<p class="sub">No OB/FVG signals triggered in the last 3 days.</p>'}</div>
+      ${d.signals.length ? `<ul class="sig">${d.signals.map(s => `<li>${s.time} <b class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</b> @ ${s.ref} SL ${s.sl} TP1 ${s.tp1} <small>${s.setup}</small></li>`).join('')}</ul>` : `<p class="sub">${d.signalsEnabled === false ? `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).` : 'No OB/FVG signals triggered in the last 3 days.'}</p>`}</div>
   </div>`;
 }
 
 function renderLive(m) {
-  const noticeHtml = m.notice ? `<div class="card" style="padding:8px 12px"><span class="sub">${escHtml(m.notice)}</span></div>` : '';
+  const noticeEl = document.getElementById('live-notice');
+  if (noticeEl) {
+    const syncedAt = m.fetchedAt
+      ? new Date(m.fetchedAt).toLocaleTimeString('en-GB', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + ' IST'
+      : (m.asOf || '');
+    noticeEl.className = 'sub';
+    noticeEl.textContent = `${m.notice || ''} Updated ${syncedAt}.`.trim();
+  }
   document.getElementById('live-grid').innerHTML =
-    `${noticeHtml}
-     <div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
+    `<div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
      <div class="card"><h3>Autopilot position</h3><p class="sub" style="margin-top:8px">${m.autopilot || 'No open position.'}</p></div>
      <div class="card"><h3>Paper condor (sideways idea)</h3><p class="sub" style="margin-top:8px">${m.condor || 'No paper condor open. Start <code>python -W ignore condor_paper.py</code> to paper-trade sideways days.'}</p></div>
      <div class="card"><h3>Alerts logged by the monitor</h3>
@@ -332,16 +383,32 @@ function renderLive(m) {
     `<h4 style="margin-top:10px">${d.key}</h4><table><tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th></tr>${d.signals.length ? d.signals.map(s => `<tr><td>${s.time}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td><td>${s.setup}</td></tr>`).join('') : '<tr><td colspan="6" class="sub">No recent signals.</td></tr>'}</table>`).join('');
 }
 
-async function loadLive() {
+async function loadLive(force = false) {
+  if (liveInFlight) return;
+  liveInFlight = true;
+  updateRefreshStatus();
   try {
-    const r = await fetch('/api/market');
+    const r = await fetch(`/api/market?ts=${Date.now()}${force ? '&force=1' : ''}`, {cache: 'no-store'});
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Could not load market data.');
     renderLive(data);
+    hasLiveData = true;
+    lastLiveAtMs = Date.now();
+  } catch (e) {
+    const msg = e.message || 'Could not load market data.';
+    const noticeEl = document.getElementById('live-notice');
+    if (hasLiveData && noticeEl) {
+      noticeEl.className = 'dnt';
+      noticeEl.textContent = `Refresh failed (${msg}) — showing last received Upstox data.`;
+    } else {
+      document.getElementById('live-grid').innerHTML = `<p class="dnt">${escHtml(msg)}</p>`;
+    }
+  } finally {
+    liveInFlight = false;
+    nextRefreshIn = 30;
+    updateRefreshStatus();
   }
-  catch (e) { document.getElementById('live-grid').innerHTML = `<p class="dnt">${escHtml(e.message || 'Could not load market data.')}</p>`; }
 }
-setInterval(() => { if (document.getElementById('tab-dashboard').classList.contains('active') && document.getElementById('portal-container').style.display === 'block') loadLive(); }, 30000);
 
 async function runBacktest(e) {
   e.preventDefault();
@@ -412,7 +479,7 @@ function renderSettingsResult(data) {
   html += `<div class="sc"><h4>Saved Portal Configuration</h4>
     <table>
       <tr><td style="width:28%">Upstox Token</td><td><code>${escHtml(cfg.hasUpstoxToken ? cfg.upstoxTokenMasked : 'Not set')}</code></td></tr>
-      <tr><td>Default Symbol (instrument)</td><td><b>${escHtml(cfg.instrument)}</b></td></tr>
+      <tr><td>Signal Instrument</td><td><b>${escHtml(cfg.instrument === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : cfg.instrument)}</b></td></tr>
       <tr><td>Max Trades / Day</td><td>${escHtml(cfg.maxTrades)}</td></tr>
       <tr><td>Lot Size</td><td>${escHtml(cfg.lotSize)}</td></tr>
       <tr><td>Action Type</td><td>${escHtml(cfg.actionType)}</td></tr>
