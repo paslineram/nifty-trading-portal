@@ -65,6 +65,30 @@ function getWritableDataDir(subName = 'nifty_portal_data') {
     }
 }
 
+const CONFIG_DIR = getWritableDataDir('nifty_portal_data');
+const CONFIG_FILE = path.join(CONFIG_DIR, 'app_config.json');
+
+function loadAppConfig() {
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                appConfig = { ...appConfig, ...parsed };
+            }
+        }
+    } catch (_) {}
+}
+
+function saveAppConfig() {
+    try {
+        if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify(appConfig, null, 2), 'utf8');
+    } catch (_) {}
+}
+
+loadAppConfig();
+
 const JOURNAL_DIR = getWritableDataDir('nifty_journal_data');
 const JOURNAL_FILE = path.join(JOURNAL_DIR, 'journal.json');
 
@@ -510,6 +534,7 @@ app.post('/api/telegram/settings', async (req, res) => {
         telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
     }
     settingsSavedAt = new Date().toISOString();
+    saveAppConfig();
     res.json({
         success: true,
         savedAt: settingsSavedAt,
