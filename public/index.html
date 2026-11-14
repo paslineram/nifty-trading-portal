@@ -128,6 +128,14 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3"></label>
         <button class="btn" style="margin-top:auto">Save Settings</button>
       </form>
+      <p id="settings-msg" class="sub" style="margin-top:10px;display:none"></p>
+    </div>
+    <div id="settings-result" class="card" style="display:none">
+      <div class="hd" style="justify-content:space-between">
+        <h3>Saved Credentials &amp; Return Values</h3>
+        <span id="settings-upstox-badge" class="badge"></span>
+      </div>
+      <div id="settings-return-body" style="margin-top:10px"></div>
     </div>
   </div>
 
@@ -146,7 +154,9 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListe
   document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
   btn.classList.add('active');
+  if (btn.dataset.tab === 'dashboard') loadLive();
   if (btn.dataset.tab === 'history') loadJournal();
+  if (btn.dataset.tab === 'settings') loadSettings();
 }));
 
 async function handleLogin() {
@@ -187,7 +197,9 @@ setInterval(tick, 1000); tick();
 // ---------- chart: 3 days of 15-min candles + HMA + Supertrend + levels ----------
 function priceChart(d) {
   const W = 500, H = 235, x0 = 34, x1 = 392, top = 10, bot = 205;
-  const n = d.candles.length, dayN = n / 3, dx = (x1 - x0) / n;
+  const n = d.candles.length, dx = (x1 - x0) / Math.max(1, n);
+  const counts = Array.isArray(d.dayCounts) && d.dayCounts.length === 3 ? d.dayCounts : [n / 3, n / 3, n / 3];
+  const dayStarts = [0, counts[0], counts[0] + counts[1]];
   const lv = d.levels;
   const lows = d.candles.map(c => c.l).concat(lv.map(l => l.v)), highs = d.candles.map(c => c.h).concat(lv.map(l => l.v));
   const hi = Math.max(...highs), lo = Math.min(...lows), pad = (hi - lo) * 0.04;
@@ -196,9 +208,9 @@ function priceChart(d) {
   const find = nm => lv.find(l => l.name === nm);
   let s = '';
   const ct = find('CPR top'), cb = find('CPR bottom');
-  const dayX = x0 + dx * dayN * 2;
+  const dayX = x0 + dx * dayStarts[2];
   if (ct && cb) s += `<rect x="${dayX}" y="${y(ct.v)}" width="${x1 - dayX}" height="${Math.max(2, y(cb.v) - y(ct.v))}" fill="var(--cpr)"/>`;
-  [1, 2].forEach(k => s += `<line x1="${x0 + dx * dayN * k}" y1="${top}" x2="${x0 + dx * dayN * k}" y2="${bot}" stroke="var(--bd)"/>`);
+  [1, 2].forEach(k => s += `<line x1="${x0 + dx * dayStarts[k]}" y1="${top}" x2="${x0 + dx * dayStarts[k]}" y2="${bot}" stroke="var(--bd)"/>`);
   // levels over today's segment
   const items = lv.map(l => ({...l, yy: y(l.v), ly: y(l.v)})).sort((a, b) => a.yy - b.yy);
   for (let i = 1; i < items.length; i++) if (items[i].ly - items[i - 1].ly < 9) items[i].ly = items[i - 1].ly + 9;
@@ -225,19 +237,22 @@ function priceChart(d) {
   }
   // signal marks
   (d.marks || []).forEach(m => {
-    const c = d.candles[m.i], xx = X(m.i);
+    const c = d.candles[m.i];
+    if (!c) return;
+    const xx = X(m.i);
     s += m.side === 'PE'
       ? `<polygon points="${xx},${y(c.l) + 3} ${xx - 4},${y(c.l) + 10} ${xx + 4},${y(c.l) + 10}" fill="var(--up)"/>`
       : `<polygon points="${xx},${y(c.h) - 3} ${xx - 4},${y(c.h) - 10} ${xx + 4},${y(c.h) - 10}" fill="var(--dn)"/>`;
   });
-  d.days.forEach((nm, k) => s += `<text x="${x0 + dx * dayN * k + 2}" y="${H - 8}" font-size="8" fill="var(--mut)">${nm}</text>`);
+  d.days.forEach((nm, k) => s += `<text x="${x0 + dx * (dayStarts[k] ?? 0) + 2}" y="${H - 8}" font-size="8" fill="var(--mut)">${nm}</text>`);
   [lo, (lo + hi) / 2, hi].forEach(v => s += `<text x="2" y="${y(v) + 3}" font-size="7.5" fill="var(--mut)">${fmt(Math.round(v))}</text>`);
   return `<svg viewBox="0 0 ${W} ${H}" class="chart">${s}</svg>`;
 }
 
 // ---------- chart: open interest by strike ----------
 function oiChart(ladder) {
-  const W = 500, H = 130, mx = Math.max(...ladder.flatMap(r => [r.call, r.put])), bw = (W - 40) / ladder.length;
+  if (!ladder || !ladder.length) return '<p class="sub" style="padding:8px 0">Option chain ladder unavailable without a valid Upstox Access Token.</p>';
+  const W = 500, H = 130, mx = Math.max(1, ...ladder.flatMap(r => [r.call, r.put])), bw = (W - 40) / ladder.length;
   let s = '';
   ladder.forEach((r, i) => {
     const x = 20 + i * bw, hc = r.call / mx * 95, hp = r.put / mx * 95;
@@ -252,7 +267,7 @@ function column(d, m) {
   const open = m.marketOpen;
   return `<div class="card">
     <div class="hd"><h3>${d.key}</h3><span class="big">${fmt2(d.price)}</span><b class="${tone(d.change)}">${d.change > 0 ? '+' : ''}${d.change.toFixed(1)} (${d.changePct}%)</b></div>
-    <div style="margin:6px 0"><span class="badge dn">${d.bias}</span></div>
+    <div style="margin:6px 0"><span class="badge ${d.biasTone || 'dn'}">${d.bias}</span></div>
     <p class="sub">Signals and indicators use the last completed 15-min bar: ${m.asOf} (close ${fmt2(d.price)}) &middot; ${open ? 'market open' : 'market closed - showing last bar'}</p>
     <div class="tiles">
       <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : ''}">${d.supertrend}</b></div>
@@ -262,7 +277,7 @@ function column(d, m) {
     </div>
     <div class="tiles one"><div><small>Paper pts (replay)</small><b class="${tone(d.paperPts)}">${d.paperPts}</b></div></div>
 
-    <div class="sc"><h4>Sideways-day check <span class="badge mid">${sw.label} (${sw.score}/${sw.total})</span></h4>
+    <div class="sc"><h4>Sideways-day check <span class="badge ${sw.score >= 4 ? 'up' : 'mid'}">${sw.label} (${sw.score}/${sw.total})</span></h4>
       <ul class="chk">${sw.checks.map(k => `<li><b class="${k.pass ? 'upt' : 'dnt'}">${k.pass ? 'PASS' : 'FAIL'}</b> ${k.name} <small>- ${k.note}</small></li>`).join('')}</ul>
       <p class="note">Condor idea only when SIDEWAYS LIKELY and price is between S1 and R1. A description of the picture, not a prediction.</p></div>
 
@@ -271,16 +286,16 @@ function column(d, m) {
 
     <div class="sc"><h4>Option chain (OI / PCR)</h4>
       <div class="tiles">
-        <div><small>PCR near ATM</small><b class="${c.pcrAtmTone === 'dn' ? 'dnt' : ''}">${c.pcrAtm}</b></div>
-        <div><small>PCR total</small><b class="${c.pcrTotalTone === 'dn' ? 'dnt' : ''}">${c.pcrTotal}</b></div>
-        <div><small>Support (put wall)</small><b class="upt">${fmt(c.putWall)}</b></div>
-        <div><small>Resistance (call wall)</small><b class="dnt">${fmt(c.callWall)}</b></div>
-        <div><small>Max pain</small><b>${fmt(c.maxPain)}</b></div>
-        <div style="grid-column:span 2"><small>OI added today CE / PE</small><b><span class="dnt">${c.oiCE}</span> / <span class="upt">${c.oiPE}</span></b></div>
-        <div><small>ATM IV</small><b>${Number(c.atmIv).toFixed(1)}</b></div>
+        <div><small>PCR near ATM</small><b class="${c.pcrAtmTone === 'dn' ? 'dnt' : c.pcrAtmTone === 'up' ? 'upt' : ''}">${c.pcrAtm ?? '-'}</b></div>
+        <div><small>PCR total</small><b class="${c.pcrTotalTone === 'dn' ? 'dnt' : c.pcrTotalTone === 'up' ? 'upt' : ''}">${c.pcrTotal ?? '-'}</b></div>
+        <div><small>Support (put wall)</small><b class="upt">${c.putWall ? fmt(c.putWall) : '-'}</b></div>
+        <div><small>Resistance (call wall)</small><b class="dnt">${c.callWall ? fmt(c.callWall) : '-'}</b></div>
+        <div><small>Max pain</small><b>${c.maxPain ? fmt(c.maxPain) : '-'}</b></div>
+        <div style="grid-column:span 2"><small>OI added today CE / PE</small><b><span class="dnt">${c.oiCE ?? '-'}</span> / <span class="upt">${c.oiPE ?? '-'}</span></b></div>
+        <div><small>ATM IV</small><b>${c.atmIv != null ? Number(c.atmIv).toFixed(1) : '-'}</b></div>
       </div>
       ${oiChart(c.ladder)}
-      <p class="legend">Open interest by strike (near ATM, expiry ${c.expiry}): <b class="dnt">&mdash;</b> calls <b class="upt">&mdash;</b> puts</p></div>
+      <p class="legend">Open interest by strike (near ATM, expiry ${c.expiry || '-'}): <b class="dnt">&mdash;</b> calls <b class="upt">&mdash;</b> puts</p></div>
 
     <div class="sc"><h4>Option-seller conditions (advisory)</h4>
       <table>${d.seller.map(r => `<tr><td style="width:24%">${r.name}</td><td style="width:70px"><span class="pill ${r.tag}">${r.tag}</span></td><td><small style="font-size:11.5px;color:var(--fg)">${r.note}</small></td></tr>`).join('')}</table>
@@ -298,13 +313,15 @@ function column(d, m) {
       <p style="font-size:13px;margin:6px 0"><b class="upt">PE side:</b> ${d.why.pe}</p>
       <p style="font-size:13px;margin:6px 0"><b class="dnt">CE side:</b> ${d.why.ce}</p>
       <h4 style="margin-top:12px">Latest signals (replay of recent candles)</h4>
-      <ul class="sig">${d.signals.map(s => `<li>${s.time} <b class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</b> @ ${s.ref} SL ${s.sl} TP1 ${s.tp1} <small>${s.setup}</small></li>`).join('')}</ul></div>
+      ${d.signals.length ? `<ul class="sig">${d.signals.map(s => `<li>${s.time} <b class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</b> @ ${s.ref} SL ${s.sl} TP1 ${s.tp1} <small>${s.setup}</small></li>`).join('')}</ul>` : '<p class="sub">No OB/FVG signals triggered in the last 3 days.</p>'}</div>
   </div>`;
 }
 
 function renderLive(m) {
+  const noticeHtml = m.notice ? `<div class="card" style="padding:8px 12px"><span class="sub">${escHtml(m.notice)}</span></div>` : '';
   document.getElementById('live-grid').innerHTML =
-    `<div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
+    `${noticeHtml}
+     <div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
      <div class="card"><h3>Autopilot position</h3><p class="sub" style="margin-top:8px">${m.autopilot || 'No open position.'}</p></div>
      <div class="card"><h3>Paper condor (sideways idea)</h3><p class="sub" style="margin-top:8px">${m.condor || 'No paper condor open. Start <code>python -W ignore condor_paper.py</code> to paper-trade sideways days.'}</p></div>
      <div class="card"><h3>Alerts logged by the monitor</h3>
@@ -312,12 +329,17 @@ function renderLive(m) {
        ${m.alerts.length ? m.alerts.map(a => `<tr><td>${a.logged}</td><td>${a.index}</td><td>${a.bar}</td><td>${a.side}</td><td>${a.ref}</td><td>${a.sl}</td><td>${a.tp1}</td><td>${a.setup}</td></tr>`).join('') : '<tr><td colspan="8" class="sub">Nothing yet - appears when monitor.py live fires a signal.</td></tr>'}</table></div>
      <div class="card"><details><summary>Order log &amp; monitor log</summary><p class="sub" style="margin-top:8px">No log entries yet.</p></details></div>`;
   document.getElementById('xray-body').innerHTML = m.instruments.map(d =>
-    `<h4 style="margin-top:10px">${d.key}</h4><table><tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th></tr>${d.signals.map(s => `<tr><td>${s.time}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td><td>${s.setup}</td></tr>`).join('')}</table>`).join('');
+    `<h4 style="margin-top:10px">${d.key}</h4><table><tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th></tr>${d.signals.length ? d.signals.map(s => `<tr><td>${s.time}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td><td>${s.setup}</td></tr>`).join('') : '<tr><td colspan="6" class="sub">No recent signals.</td></tr>'}</table>`).join('');
 }
 
 async function loadLive() {
-  try { renderLive(await (await fetch('/api/market')).json()); }
-  catch (e) { document.getElementById('live-grid').innerHTML = '<p class="dnt">Could not load market data.</p>'; }
+  try {
+    const r = await fetch('/api/market');
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Could not load market data.');
+    renderLive(data);
+  }
+  catch (e) { document.getElementById('live-grid').innerHTML = `<p class="dnt">${escHtml(e.message || 'Could not load market data.')}</p>`; }
 }
 setInterval(() => { if (document.getElementById('tab-dashboard').classList.contains('active') && document.getElementById('portal-container').style.display === 'block') loadLive(); }, 30000);
 
@@ -334,13 +356,117 @@ async function loadJournal() {
   document.getElementById('journal').innerHTML = '<tr><th>Time</th><th>Symbol</th><th>Type</th><th>Price</th><th>PnL</th><th>Status</th></tr>' +
     tradeHistory.map(t => `<tr><td>${t.time}</td><td>${t.symbol}</td><td class="${t.type === 'BUY' ? 'upt' : 'dnt'}">${t.type}</td><td>${fmt(t.price)}</td><td class="${t.pnl < 0 ? 'dnt' : 'upt'}">${t.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(t.pnl))}</td><td>${t.status}</td></tr>`).join('');
 }
+function escHtml(v) {
+  return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function renderSettingsResult(data) {
+  const box = document.getElementById('settings-result');
+  const badge = document.getElementById('settings-upstox-badge');
+  const body = document.getElementById('settings-return-body');
+  if (!data || !data.appConfig) {
+    box.style.display = 'none';
+    return;
+  }
+  const cfg = data.appConfig;
+  const upx = data.upstox || {};
+  const p = upx.profile;
+
+  if (cfg.instrument) document.getElementById('set-sym').value = cfg.instrument;
+  if (cfg.maxTrades != null) document.getElementById('set-maxtrades').value = cfg.maxTrades;
+
+  if (upx.verified && p) {
+    badge.className = 'badge up';
+    badge.textContent = 'UPSTOX VERIFIED';
+  } else if (cfg.hasUpstoxToken) {
+    badge.className = 'badge dn';
+    badge.textContent = 'UPSTOX NOT VERIFIED';
+  } else {
+    badge.className = 'badge mid';
+    badge.textContent = 'TOKEN NOT SET';
+  }
+
+  let html = '';
+  if (p) {
+    html += `<div class="sc"><h4>Upstox Profile Return Values</h4>
+      <div class="tiles">
+        <div><small>User ID (id)</small><b>${escHtml(p.id || p.user_id || '-')}</b></div>
+        <div><small>User Name</small><b>${escHtml(p.user_name || '-')}</b></div>
+        <div><small>Broker</small><b>${escHtml(p.broker || 'UPSTOX')}</b></div>
+        <div><small>Status</small><b class="${p.is_active ? 'upt' : 'dnt'}">${p.is_active ? 'ACTIVE' : 'INACTIVE'}</b></div>
+      </div>
+      <table>
+        <tr><td style="width:28%">id</td><td><code>${escHtml(p.id || p.user_id || '-')}</code></td></tr>
+        <tr><td>user_id</td><td><code>${escHtml(p.user_id || '-')}</code></td></tr>
+        <tr><td>email</td><td>${escHtml(p.email || '-')}</td></tr>
+        <tr><td>user_type</td><td>${escHtml(p.user_type || '-')}</td></tr>
+        <tr><td>exchanges</td><td>${escHtml(Array.isArray(p.exchanges) ? p.exchanges.join(', ') : (p.exchanges || '-'))}</td></tr>
+        <tr><td>products</td><td>${escHtml(Array.isArray(p.products) ? p.products.join(', ') : (p.products || '-'))}</td></tr>
+        <tr><td>order_types</td><td>${escHtml(Array.isArray(p.order_types) ? p.order_types.join(', ') : (p.order_types || '-'))}</td></tr>
+      </table>
+    </div>`;
+  } else if (upx.error) {
+    html += `<div class="sc"><h4>Upstox Verification</h4><p class="dnt">${escHtml(upx.error)}</p></div>`;
+  }
+
+  html += `<div class="sc"><h4>Saved Portal Configuration</h4>
+    <table>
+      <tr><td style="width:28%">Upstox Token</td><td><code>${escHtml(cfg.hasUpstoxToken ? cfg.upstoxTokenMasked : 'Not set')}</code></td></tr>
+      <tr><td>Default Symbol (instrument)</td><td><b>${escHtml(cfg.instrument)}</b></td></tr>
+      <tr><td>Max Trades / Day</td><td>${escHtml(cfg.maxTrades)}</td></tr>
+      <tr><td>Lot Size</td><td>${escHtml(cfg.lotSize)}</td></tr>
+      <tr><td>Action Type</td><td>${escHtml(cfg.actionType)}</td></tr>
+      <tr><td>OB Max Age</td><td>${escHtml(cfg.obMaxAge)}</td></tr>
+      <tr><td>Impulse ATR</td><td>${escHtml(cfg.impATR)}</td></tr>
+      <tr><td>Saved At</td><td>${escHtml(data.savedAt || '-')}</td></tr>
+    </table>
+  </div>`;
+
+  html += `<details style="margin-top:8px"><summary>Raw Return Payload</summary><pre style="margin-top:8px;padding:10px;background:var(--bg);border-radius:6px;overflow:auto;font-size:11px">${escHtml(JSON.stringify(data, null, 2))}</pre></details>`;
+
+  body.innerHTML = html;
+  box.style.display = 'block';
+}
+
+async function loadSettings() {
+  try {
+    const r = await fetch('/api/settings');
+    if (!r.ok) return;
+    const data = await r.json();
+    renderSettingsResult(data);
+  } catch (_) {}
+}
+
 async function saveSettings(e) {
   e.preventDefault();
+  const msg = document.getElementById('settings-msg');
+  msg.style.display = 'block';
+  msg.className = 'sub';
+  msg.textContent = 'Saving settings & checking Upstox credentials…';
+
   const body = {instrument: document.getElementById('set-sym').value, maxTrades: +document.getElementById('set-maxtrades').value};
   const tok = document.getElementById('set-token').value.trim();
   if (tok) body.upstoxToken = tok;
-  await fetch('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
-  alert('Settings saved successfully!');
+  try {
+    const resp = await fetch('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const data = await resp.json();
+    if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to save settings');
+    document.getElementById('set-token').value = '';
+    if (data.upstox?.verified) {
+      msg.className = 'upt';
+      msg.textContent = `Settings saved and Upstox credentials verified (id: ${data.upstox.profile?.id || '-'}).`;
+    } else if (data.appConfig?.hasUpstoxToken && data.upstox?.error) {
+      msg.className = 'mid';
+      msg.textContent = `Settings saved, but Upstox verification returned: ${data.upstox.error}`;
+    } else {
+      msg.className = 'upt';
+      msg.textContent = 'Settings saved successfully.';
+    }
+    renderSettingsResult(data);
+  } catch (err) {
+    msg.className = 'dnt';
+    msg.textContent = err.message || 'Could not save settings.';
+  }
 }
 </script>
 </body>
