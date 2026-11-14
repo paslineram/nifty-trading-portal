@@ -135,6 +135,35 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       <p id="sig-tg-action-msg" class="sub" style="margin-top:6px;display:none"></p>
       <div id="sig-tg-logs" style="margin-top:10px"></div>
     </div>
+
+    <div class="card" id="signals-upx-card">
+      <div class="hd" style="justify-content:space-between;gap:8px">
+        <div class="hd" style="gap:8px">
+          <h3 style="margin:0">Upstox Order Signal Check &amp; Dispatch</h3>
+          <span id="upx-ord-badge" class="badge mid">DRY RUN CHECK</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadUpstoxOrders()">Refresh Order Book</button>
+          <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--mut);border-color:var(--mut)" onclick="clearUpstoxOrderHistory()">Clear Dispatch Log</button>
+        </div>
+      </div>
+      <p class="sub" style="margin-top:4px">Test sending an order signal to Upstox: resolves the nearest option contract (<code>NIFTY=25</code>, <code>SENSEX=60</code>), validates live margin via <code>/v2/charges/margin</code> in <b>Dry Run</b>, or places an order in <b>Sandbox</b> / <b>Live HFT</b>.</p>
+      <form class="f" style="margin:10px 0 4px" onsubmit="sendCustomUpstoxOrder(event)">
+        <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Lot 25)</option><option value="SENSEX">SENSEX (Lot 60)</option></select></label>
+        <label>Signal Side <select id="upx-ord-side"><option value="SELL PE">SELL PE (Bullish)</option><option value="SELL CE">SELL CE (Bearish)</option><option value="BUY CE">BUY CE</option><option value="BUY PE">BUY PE</option></select></label>
+        <label>Execution Mode <select id="upx-ord-mode" onchange="syncOrderModeBadge()"><option value="DRY_RUN">DRY_RUN (Contract + Margin Check)</option><option value="SANDBOX">SANDBOX (api-sandbox.upstox.com)</option><option value="LIVE">LIVE HFT (api-hft.upstox.com)</option></select></label>
+        <label>Product <select id="upx-ord-product"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
+        <label>Order Type <select id="upx-ord-type"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT (LTP)</option></select></label>
+        <label>Lots <input type="number" id="upx-ord-lots" value="1" min="1" max="50"></label>
+        <label>AMO (After Market) <select id="upx-ord-amo"><option value="false">No (Regular)</option><option value="true">Yes (AMO)</option></select></label>
+        <button id="upx-ord-send-btn" class="btn" style="margin-top:auto">Send Signal to Upstox</button>
+        <button type="button" class="btn" style="margin-top:auto;background:var(--up);border-color:var(--up)" onclick="sendSampleSignalToUpstox(this)">Test Latest Signal</button>
+      </form>
+      <p id="upx-ord-msg" class="sub" style="margin-top:8px;display:none"></p>
+      <div id="upx-ord-preview" style="margin-top:10px"></div>
+      <div id="upx-ord-logs" style="margin-top:10px"></div>
+      <div id="upx-ord-book" style="margin-top:10px"></div>
+    </div>
   </div>
 
   <div id="tab-backtest" class="tab-content">
@@ -296,6 +325,22 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       </form>
       <p id="tg-msg" class="sub" style="margin-top:10px;display:none"></p>
     </div>
+    <div class="card">
+      <div class="hd" style="justify-content:space-between">
+        <h3>Upstox Order Execution &amp; Sandbox</h3>
+        <span id="settings-ord-badge" class="badge mid">DRY_RUN</span>
+      </div>
+      <p class="sub" style="margin-top:4px">Configure default Upstox order execution behavior for strategy signals (kept in <b>DRY_RUN</b> / manual unless Auto-Execute is enabled).</p>
+      <form class="f" style="margin-top:12px" onsubmit="saveUpstoxOrderConfig(event)">
+        <label>Default Execution Mode <select id="set-ord-mode"><option value="DRY_RUN">DRY_RUN (Margin &amp; Contract Check)</option><option value="SANDBOX">SANDBOX (Upstox Sandbox)</option><option value="LIVE">LIVE (Upstox HFT Production)</option></select></label>
+        <label>Auto-Execute New Signals <select id="set-ord-auto"><option value="false">OFF (Manual Check / Click Only)</option><option value="true">ON (Auto-Send New Signals)</option></select></label>
+        <label>Default Product <select id="set-ord-prod"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
+        <label>Default Lots <input type="number" id="set-ord-lots" value="1" min="1" max="50"></label>
+        <label>Upstox Sandbox Token <input type="password" id="set-sandbox-token" placeholder="Optional Sandbox API token"></label>
+        <button id="set-ord-btn" class="btn" style="margin-top:auto">Save Order Config</button>
+      </form>
+      <p id="set-ord-msg" class="sub" style="margin-top:10px;display:none"></p>
+    </div>
     <div id="settings-result" class="card" style="display:none">
       <div class="hd" style="justify-content:space-between">
         <h3>Saved Credentials &amp; Return Values</h3>
@@ -323,7 +368,7 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListe
   if (btn.dataset.tab === 'dashboard' || btn.dataset.tab === 'xray' || btn.dataset.tab === 'signals') {
     if (!hasLiveData || Date.now() - lastLiveAtMs >= 30000) loadLive();
   }
-  if (btn.dataset.tab === 'signals') loadTelegramStatus();
+  if (btn.dataset.tab === 'signals') { loadTelegramStatus(); loadUpstoxOrders(); }
   if (btn.dataset.tab === 'backtest' && !hasBacktestRun) runBacktest();
   if (btn.dataset.tab === 'history') loadJournal();
   if (btn.dataset.tab === 'settings') loadSettings();
@@ -709,13 +754,13 @@ function renderSignalSummary(m) {
             <small class="${tone(d.paperPts)}">Paper pts: <b>${sgn(d.paperPts || 0)}</b></small>
           </div>
           <table>
-            <tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th><th>Exit / PnL</th></tr>
+            <tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th><th>Exit / PnL</th><th>Upstox</th></tr>
             ${d.signals.length ? d.signals.map(s => {
               const ex = s.exitReason
                 ? `<span class="${s.pts >= 0 ? 'upt' : 'dnt'}">${escHtml(s.exitReason)} ${s.exitTime ? escHtml(s.exitTime) + ' ' : ''}@ ${s.exitPrice} (${sgn(s.pts)})</span>`
                 : '<span class="sub">OPEN</span>';
-              return `<tr><td>${s.time}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}"><b>${s.side}</b></td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td><td>${s.setup}</td><td>${ex}</td></tr>`;
-            }).join('') : `<tr><td colspan="7" class="sub">${sigOn ? 'No recent signals.' : `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).`}</td></tr>`}
+              return `<tr><td>${s.time}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}"><b>${s.side}</b></td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td><td>${s.setup}</td><td>${ex}</td><td><button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="sendUpstoxSignalOrder('${escHtml(d.key)}', '${escHtml(s.side)}', ${Number(s.ref) || 0}, this)">Check / Send</button></td></tr>`;
+            }).join('') : `<tr><td colspan="8" class="sub">${sigOn ? 'No recent signals.' : `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).`}</td></tr>`}
           </table>
         </div>`;
       }).join('')}
@@ -758,6 +803,7 @@ async function loadLive(force = false) {
     if (!r.ok) throw new Error(data.error || 'Could not load market data.');
     renderLive(data);
     loadTelegramStatus();
+    loadUpstoxOrders();
     hasLiveData = true;
     lastLiveAtMs = Date.now();
   } catch (e) {
@@ -1374,6 +1420,217 @@ async function clearTelegramLogHistory() {
   }
 }
 
+function syncOrderModeBadge() {
+  const mode = document.getElementById('upx-ord-mode')?.value || 'DRY_RUN';
+  const badge = document.getElementById('upx-ord-badge');
+  if (!badge) return;
+  badge.className = `badge ${mode === 'LIVE' ? 'dn' : mode === 'SANDBOX' ? 'up' : 'mid'}`;
+  badge.textContent = mode === 'LIVE' ? 'LIVE HFT' : mode === 'SANDBOX' ? 'SANDBOX' : 'DRY RUN CHECK';
+}
+
+function renderOrderLogPreview(log) {
+  const el = document.getElementById('upx-ord-preview');
+  if (!el || !log) return;
+  const reqM = log.requiredMargin != null ? `&#8377; ${fmt(Math.round(log.requiredMargin))}` : '-';
+  const availM = log.availableMargin != null ? `&#8377; ${fmt(Math.round(log.availableMargin))}` : '-';
+  const stPill = /SENT|VALIDATED/.test(log.status) ? 'GOOD' : log.status === 'CONTRACT_OK' ? 'INFO' : 'BAD';
+  el.innerHTML = `<div class="sc">
+    <div class="hd" style="justify-content:space-between;margin-bottom:6px">
+      <h4 style="margin:0">Last Upstox Order Signal Result</h4>
+      <span class="pill ${stPill}">${escHtml(log.status)}</span>
+    </div>
+    <div class="tiles">
+      <div><small>Contract</small><b>${escHtml(log.tradingSymbol || '-')}</b></div>
+      <div><small>Option LTP</small><b>${log.ltp != null ? fmt2(log.ltp) : '-'}</b></div>
+      <div><small>Qty (${log.lots}×${log.lotSize})</small><b>${log.qty} (${escHtml(log.transactionType)})</b></div>
+      <div><small>Margin Req / Avail</small><b>${reqM} / ${availM}</b></div>
+    </div>
+    <p class="sub" style="margin-top:6px"><b>Instrument Token:</b> <code>${escHtml(log.instrumentToken)}</code> &middot; <b>Mode:</b> ${escHtml(log.mode)}${log.orderId ? ` &middot; <b>Order ID:</b> <code>${escHtml(log.orderId)}</code>` : ''}</p>
+    <p class="${stPill === 'BAD' ? 'dnt' : 'upt'}" style="margin-top:4px;font-size:12px">${escHtml(log.message)}</p>
+    ${log.payload ? `<details style="margin-top:6px"><summary style="font-size:12px">Upstox Order Payload &amp; API Response</summary><pre style="margin-top:6px;padding:8px;background:var(--card);border:1px solid var(--bd);border-radius:6px;overflow:auto;font-size:11px">${escHtml(JSON.stringify({ payload: log.payload, response: log.response }, null, 2))}</pre></details>` : ''}
+  </div>`;
+}
+
+function renderUpstoxOrderPanel(data) {
+  const logsEl = document.getElementById('upx-ord-logs');
+  const bookEl = document.getElementById('upx-ord-book');
+  const cfg = data?.appConfig || {};
+  const logs = data?.state?.logs || [];
+  const ob = data?.orderBook;
+
+  if (logs.length) renderOrderLogPreview(logs[0]);
+
+  if (logsEl) {
+    if (!logs.length) {
+      logsEl.innerHTML = '<p class="sub">No Upstox order checks dispatched yet. Click <b>Test Latest Signal</b> or <b>Send Signal to Upstox</b> above to validate contract resolution, live margin, and order payload.</p>';
+    } else {
+      logsEl.innerHTML = `<h4 style="margin:6px 0">Signal-to-Upstox Dispatch Log</h4>
+        <table>
+          <tr><th>Time</th><th>Mode</th><th>Index</th><th>Signal</th><th>Option Contract</th><th>Qty</th><th>Req Margin</th><th>Status</th><th>Message / Order ID</th></tr>
+          ${logs.slice(0, 15).map(l => {
+            const pill = /SENT|VALIDATED/.test(l.status) ? 'GOOD' : l.status === 'CONTRACT_OK' ? 'INFO' : 'BAD';
+            return `<tr>
+              <td>${escHtml(l.time)}</td>
+              <td><code>${escHtml(l.mode)}</code></td>
+              <td><b>${escHtml(l.index)}</b></td>
+              <td class="${/PE/.test(l.signalSide) ? 'upt' : 'dnt'}"><b>${escHtml(l.signalSide)}</b></td>
+              <td><b>${escHtml(l.tradingSymbol)}</b><br><small>${escHtml(l.instrumentToken)}</small></td>
+              <td>${l.qty}</td>
+              <td>${l.requiredMargin != null ? '&#8377;' + fmt(Math.round(l.requiredMargin)) : '-'}</td>
+              <td><span class="pill ${pill}">${escHtml(l.status)}</span></td>
+              <td><small>${escHtml(l.orderId ? `ID: ${l.orderId} · ` : '')}${escHtml(l.message)}</small></td>
+            </tr>`;
+          }).join('')}
+        </table>`;
+    }
+  }
+
+  if (bookEl) {
+    if (!ob || !ob.available) {
+      bookEl.innerHTML = `<h4 style="margin:6px 0">Upstox Broker Order Book (Today)</h4><p class="sub">${escHtml(ob?.reason || 'Order book unavailable.')}</p>`;
+    } else if (!ob.orders.length) {
+      bookEl.innerHTML = '<h4 style="margin:6px 0">Upstox Broker Order Book (Today)</h4><p class="sub">Connected to Upstox — 0 broker orders in today\'s order book.</p>';
+    } else {
+      bookEl.innerHTML = `<h4 style="margin:6px 0">Upstox Broker Order Book (Today)</h4>
+        <table>
+          <tr><th>Order ID</th><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th>Message</th></tr>
+          ${ob.orders.map(o => {
+            const p = /complete/i.test(o.status) ? 'GOOD' : /reject|cancel/i.test(o.status) ? 'BAD' : 'INFO';
+            return `<tr><td><code>${escHtml(o.orderId)}</code></td><td>${escHtml(o.time)}</td><td><b>${escHtml(o.symbol)}</b></td><td class="${o.side === 'BUY' ? 'upt' : 'dnt'}"><b>${escHtml(o.side)}</b></td><td>${o.filledQty}/${o.qty}</td><td>${escHtml(o.orderType)} (${escHtml(o.product)})</td><td>${fmt2(o.price)}</td><td><span class="pill ${p}">${escHtml(o.status)}</span></td><td><small>${escHtml(o.statusMessage || o.tag || '-')}</small></td></tr>`;
+          }).join('')}
+        </table>`;
+    }
+  }
+}
+
+async function loadUpstoxOrders() {
+  try {
+    const r = await fetch('/api/upstox/orders', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data.appConfig?.upstoxOrderMode && document.getElementById('upx-ord-mode')) {
+      document.getElementById('upx-ord-mode').value = data.appConfig.upstoxOrderMode;
+      syncOrderModeBadge();
+    }
+    renderUpstoxOrderPanel(data);
+  } catch (_) {}
+}
+
+async function sendUpstoxSignalOrder(index, side, spotPrice, btn) {
+  const mode = document.getElementById('upx-ord-mode')?.value || 'DRY_RUN';
+  const product = document.getElementById('upx-ord-product')?.value || 'I';
+  const orderType = document.getElementById('upx-ord-type')?.value || 'MARKET';
+  const lots = +document.getElementById('upx-ord-lots')?.value || 1;
+  const isAmo = document.getElementById('upx-ord-amo')?.value === 'true';
+  const msgEl = document.getElementById('upx-ord-msg');
+  if (btn) btn.disabled = true;
+  if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'sub'; msgEl.textContent = `Sending ${index} ${side} (${mode}) to Upstox…`; }
+
+  try {
+    const r = await fetch('/api/upstox/order-signal', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, side, spotPrice, lots, product, orderType, isAmo, mode })
+    });
+    const data = await r.json();
+    if (msgEl) {
+      msgEl.className = data.success ? 'upt' : 'dnt';
+      msgEl.textContent = data.log?.message || data.error || 'Done';
+    }
+    renderUpstoxOrderPanel(data);
+  } catch (err) {
+    if (msgEl) { msgEl.className = 'dnt'; msgEl.textContent = err.message || 'Order signal failed'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function sendCustomUpstoxOrder(e) {
+  e.preventDefault();
+  const idx = document.getElementById('upx-ord-index').value;
+  const side = document.getElementById('upx-ord-side').value;
+  const btn = document.getElementById('upx-ord-send-btn');
+  await sendUpstoxSignalOrder(idx, side, null, btn);
+}
+
+async function sendSampleSignalToUpstox(btn) {
+  const mode = document.getElementById('upx-ord-mode')?.value || 'DRY_RUN';
+  const product = document.getElementById('upx-ord-product')?.value || 'I';
+  const orderType = document.getElementById('upx-ord-type')?.value || 'MARKET';
+  const lots = +document.getElementById('upx-ord-lots')?.value || 1;
+  const isAmo = document.getElementById('upx-ord-amo')?.value === 'true';
+  const index = document.getElementById('upx-ord-index')?.value;
+  const msgEl = document.getElementById('upx-ord-msg');
+  if (btn) btn.disabled = true;
+  if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'sub'; msgEl.textContent = `Checking latest ${index || ''} signal against Upstox (${mode})…`; }
+
+  try {
+    const r = await fetch('/api/upstox/order-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index, lots, product, orderType, isAmo, mode })
+    });
+    const data = await r.json();
+    if (msgEl) {
+      msgEl.className = data.success ? 'upt' : 'dnt';
+      msgEl.textContent = data.log?.message || data.error || 'Done';
+    }
+    renderUpstoxOrderPanel(data);
+  } catch (err) {
+    if (msgEl) { msgEl.className = 'dnt'; msgEl.textContent = err.message || 'Test order signal failed'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function clearUpstoxOrderHistory() {
+  const r = await fetch('/api/upstox/orders', { method: 'DELETE' });
+  if (r.ok) {
+    const msgEl = document.getElementById('upx-ord-msg');
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'sub'; msgEl.textContent = 'Upstox signal dispatch log cleared.'; }
+    const pv = document.getElementById('upx-ord-preview');
+    if (pv) pv.innerHTML = '';
+    loadUpstoxOrders();
+  }
+}
+
+async function saveUpstoxOrderConfig(e) {
+  e.preventDefault();
+  const btn = document.getElementById('set-ord-btn');
+  const msg = document.getElementById('set-ord-msg');
+  if (btn) btn.disabled = true;
+  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = 'Saving Upstox order settings…'; }
+
+  const body = {
+    upstoxOrderMode: document.getElementById('set-ord-mode').value,
+    upstoxAutoOrder: document.getElementById('set-ord-auto').value === 'true',
+    upstoxOrderProduct: document.getElementById('set-ord-prod').value,
+    upstoxOrderLots: +document.getElementById('set-ord-lots').value || 1
+  };
+  const sTok = document.getElementById('set-sandbox-token').value.trim();
+  if (sTok) body.upstoxSandboxToken = sTok;
+
+  try {
+    const r = await fetch('/api/upstox/order-config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Failed to save order config');
+    document.getElementById('set-sandbox-token').value = '';
+    if (msg) {
+      msg.className = 'upt';
+      msg.textContent = `Order config saved: ${data.appConfig.upstoxOrderMode} · Auto-Execute ${data.appConfig.upstoxAutoOrder ? 'ON' : 'OFF'}.`;
+    }
+    loadSettings();
+  } catch (err) {
+    if (msg) { msg.className = 'dnt'; msg.textContent = err.message || 'Save failed'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function renderSettingsResult(data) {
   const box = document.getElementById('settings-result');
   const badge = document.getElementById('settings-upstox-badge');
@@ -1396,6 +1653,15 @@ function renderSettingsResult(data) {
   if (document.getElementById('tg-entries')) document.getElementById('tg-entries').value = String(cfg.telegramNotifyEntries !== false);
   if (document.getElementById('tg-exits')) document.getElementById('tg-exits').value = String(cfg.telegramNotifyExits !== false);
   if (document.getElementById('tg-monitor')) document.getElementById('tg-monitor').value = String(cfg.telegramAutoMonitor !== false);
+  if (document.getElementById('set-ord-mode') && cfg.upstoxOrderMode) document.getElementById('set-ord-mode').value = cfg.upstoxOrderMode;
+  if (document.getElementById('set-ord-auto')) document.getElementById('set-ord-auto').value = String(Boolean(cfg.upstoxAutoOrder));
+  if (document.getElementById('set-ord-prod') && cfg.upstoxOrderProduct) document.getElementById('set-ord-prod').value = cfg.upstoxOrderProduct;
+  if (document.getElementById('set-ord-lots') && cfg.upstoxOrderLots) document.getElementById('set-ord-lots').value = cfg.upstoxOrderLots;
+  const ordBadge = document.getElementById('settings-ord-badge');
+  if (ordBadge) {
+    ordBadge.className = `badge ${cfg.upstoxOrderMode === 'LIVE' ? 'dn' : cfg.upstoxOrderMode === 'SANDBOX' ? 'up' : 'mid'}`;
+    ordBadge.textContent = `${cfg.upstoxOrderMode || 'DRY_RUN'}${cfg.upstoxAutoOrder ? ' · AUTO' : ' · MANUAL'}`;
+  }
   renderTelegramLogSection({ appConfig: cfg, telegram: tg });
 
   if (upx.verified && p) {

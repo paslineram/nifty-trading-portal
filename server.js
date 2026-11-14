@@ -12,6 +12,13 @@ const {
     clearTelegramLogs,
     getTelegramAlertsForDashboard
 } = require('./telegramNotifier');
+const {
+    loadOrderState,
+    executeUpstoxOrderSignal,
+    fetchUpstoxOrderBook,
+    processSnapshotForAutoOrder,
+    clearOrderLogs
+} = require('./upstoxOrders');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -33,7 +40,12 @@ let appConfig = {
     telegramEnabled: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
     telegramNotifyEntries: true,
     telegramNotifyExits: true,
-    telegramAutoMonitor: true
+    telegramAutoMonitor: true,
+    upstoxSandboxToken: process.env.UPSTOX_SANDBOX_TOKEN || '',
+    upstoxOrderMode: 'DRY_RUN',
+    upstoxAutoOrder: false,
+    upstoxOrderProduct: 'I',
+    upstoxOrderLots: 1
 };
 
 let botState = { status: 'Idle', lastSignal: 'None', tradesToday: 0, currentPnL: 0.0, gammaEnv: 'Neutral', distanceToWall: 145.5 };
@@ -118,7 +130,10 @@ app.get('/api/market', async (req, res) => {
     try {
         const force = req.query.force === '1';
         const data = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, force);
-        await processSnapshotForTelegram(data, appConfig).catch(() => null);
+        await Promise.all([
+            processSnapshotForTelegram(data, appConfig).catch(() => null),
+            processSnapshotForAutoOrder(data, appConfig).catch(() => null)
+        ]);
         res.json({
             ...data,
             alerts: getTelegramAlertsForDashboard(),
@@ -153,11 +168,13 @@ function maskToken(tok) {
 }
 
 function getSafeConfig() {
-    const { upstoxToken, telegramBotToken, ...rest } = appConfig;
+    const { upstoxToken, telegramBotToken, upstoxSandboxToken, ...rest } = appConfig;
     return {
         ...rest,
         hasUpstoxToken: Boolean(upstoxToken),
         upstoxTokenMasked: maskToken(upstoxToken),
+        hasUpstoxSandboxToken: Boolean(upstoxSandboxToken),
+        upstoxSandboxTokenMasked: maskToken(upstoxSandboxToken),
         hasTelegramToken: Boolean(telegramBotToken),
         telegramTokenMasked: maskToken(telegramBotToken)
     };
@@ -517,6 +534,134 @@ app.delete('/api/telegram/logs', async (req, res) => {
     res.json({ success: true, state });
 });
 
+app.get('/api/upstox/orders', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    const orderBook = await fetchUpstoxOrderBook(appConfig.upstoxToken);
+    res.json({
+        success: true,
+        appConfig: getSafeConfig(),
+        state: loadOrderState(),
+        orderBook
+    });
+});
+
+app.post('/api/upstox/order-config', (req, res) => {
+    const body = req.body || {};
+    if (typeof body.upstoxSandboxToken === 'string' && body.upstoxSandboxToken.trim()) {
+        appConfig.upstoxSandboxToken = body.upstoxSandboxToken.trim();
+    }
+    if (body.upstoxOrderMode !== undefined) {
+        const m = String(body.upstoxOrderMode).toUpperCase();
+        if (['DRY_RUN', 'SANDBOX', 'LIVE'].includes(m)) appConfig.upstoxOrderMode = m;
+    }
+    if (body.upstoxAutoOrder !== undefined) {
+        appConfig.upstoxAutoOrder = body.upstoxAutoOrder === true || body.upstoxAutoOrder === 'true';
+    }
+    if (body.upstoxOrderProduct !== undefined) {
+        const p = String(body.upstoxOrderProduct).toUpperCase();
+        if (['I', 'D'].includes(p)) appConfig.upstoxOrderProduct = p;
+    }
+    if (body.upstoxOrderLots !== undefined) {
+        appConfig.upstoxOrderLots = Math.max(1, Math.min(50, Number(body.upstoxOrderLots) || 1));
+    }
+    settingsSavedAt = new Date().toISOString();
+    res.json({
+        success: true,
+        savedAt: settingsSavedAt,
+        appConfig: getSafeConfig()
+    });
+});
+
+app.post('/api/upstox/order-signal', async (req, res) => {
+    try {
+        const body = req.body || {};
+        const index = String(body.index || (appConfig.instrument === 'SENSEX' ? 'SENSEX' : 'NIFTY')).toUpperCase();
+        let spotPrice = body.spotPrice ? Number(body.spotPrice) : null;
+        if (!spotPrice) {
+            const snap = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, false).catch(() => null);
+            const match = (snap?.instruments || []).find(i => i.key === index);
+            if (match?.price) spotPrice = match.price;
+        }
+
+        const result = await executeUpstoxOrderSignal({
+            index,
+            side: body.side || 'SELL PE',
+            spotPrice,
+            lots: body.lots || appConfig.upstoxOrderLots || 1,
+            product: body.product || appConfig.upstoxOrderProduct || 'I',
+            orderType: body.orderType || 'MARKET',
+            limitPrice: body.limitPrice,
+            isAmo: Boolean(body.isAmo),
+            mode: body.mode || appConfig.upstoxOrderMode || 'DRY_RUN',
+            tag: body.tag
+        }, appConfig);
+
+        const orderBook = await fetchUpstoxOrderBook(appConfig.upstoxToken);
+        res.status(result.ok ? 200 : 400).json({
+            success: result.ok,
+            log: result.log,
+            state: result.state,
+            orderBook,
+            appConfig: getSafeConfig()
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Upstox order signal check failed' });
+    }
+});
+
+app.post('/api/upstox/order-test', async (req, res) => {
+    try {
+        const body = req.body || {};
+        const snap = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, false);
+        const activeInsts = (snap?.instruments || []).filter(i => i.signalsEnabled !== false);
+        const requestedIdx = body.index ? String(body.index).toUpperCase() : null;
+        const pickedInst = (requestedIdx && activeInsts.find(i => i.key === requestedIdx))
+            || activeInsts.find(i => (i.signals || []).length)
+            || activeInsts[0]
+            || snap?.instruments?.[0];
+
+        if (!pickedInst) {
+            return res.status(400).json({ success: false, error: 'No instrument market snapshot available' });
+        }
+
+        const latestSig = (pickedInst.signals || [])[0];
+        const side = body.side || latestSig?.side || (pickedInst.supertrend === 'DOWN' ? 'SELL CE' : 'SELL PE');
+        const spotPrice = latestSig?.ref || pickedInst.price;
+        const mode = ['DRY_RUN', 'SANDBOX', 'LIVE'].includes(String(body.mode || '').toUpperCase())
+            ? String(body.mode).toUpperCase()
+            : (appConfig.upstoxOrderMode || 'DRY_RUN');
+
+        const result = await executeUpstoxOrderSignal({
+            index: pickedInst.key,
+            side,
+            spotPrice,
+            lots: body.lots || appConfig.upstoxOrderLots || 1,
+            product: body.product || appConfig.upstoxOrderProduct || 'I',
+            orderType: body.orderType || 'MARKET',
+            isAmo: Boolean(body.isAmo),
+            mode,
+            tag: `sig-test-${pickedInst.key.slice(0, 3).toLowerCase()}`
+        }, appConfig);
+
+        const orderBook = await fetchUpstoxOrderBook(appConfig.upstoxToken);
+        res.status(result.ok ? 200 : 400).json({
+            success: result.ok,
+            sourceSignal: latestSig || { time: 'Live Spot', side, ref: spotPrice, setup: 'Sample Signal' },
+            log: result.log,
+            state: result.state,
+            orderBook,
+            appConfig: getSafeConfig()
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Upstox signal test failed' });
+    }
+});
+
+app.delete('/api/upstox/orders', async (req, res) => {
+    const state = await clearOrderLogs();
+    res.json({ success: true, state });
+});
+
 app.post('/api/bot/toggle', (req, res) => {
     botState.status = req.body.active ? 'Running' : 'Stopped';
     res.json({ success: true, botState });
@@ -527,11 +672,17 @@ async function runBackgroundSignalMonitor() {
     if (tgMonitorRunning) return;
     tgMonitorRunning = true;
     try {
-        const state = loadTelegramState();
-        const shouldPoll = !state.seeded || (appConfig.telegramEnabled && appConfig.telegramAutoMonitor && appConfig.telegramBotToken && appConfig.telegramChatId);
+        const tgState = loadTelegramState();
+        const ordState = loadOrderState();
+        const tgActive = appConfig.telegramEnabled && appConfig.telegramAutoMonitor && appConfig.telegramBotToken && appConfig.telegramChatId;
+        const ordActive = appConfig.upstoxAutoOrder && appConfig.upstoxToken;
+        const shouldPoll = !tgState.seeded || !ordState.seeded || tgActive || ordActive;
         if (!shouldPoll) return;
         const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, true);
-        await processSnapshotForTelegram(snapshot, appConfig);
+        await Promise.all([
+            processSnapshotForTelegram(snapshot, appConfig),
+            processSnapshotForAutoOrder(snapshot, appConfig)
+        ]);
     } catch (_) {
         // Keep background monitor resilient on transient network errors
     } finally {
