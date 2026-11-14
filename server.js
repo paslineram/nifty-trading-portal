@@ -1,8 +1,17 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation } = require('./upstoxMarket');
+const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal } = require('./upstoxMarket');
+const {
+    loadTelegramState,
+    verifyTelegramBot,
+    processSnapshotForTelegram,
+    sendTestTelegramAlert,
+    clearTelegramLogs,
+    getTelegramAlertsForDashboard
+} = require('./telegramNotifier');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -18,15 +27,78 @@ let appConfig = {
     actionType: 'BOTH',
     maxTrades: 3,
     obMaxAge: 25,
-    impATR: 0.8
+    impATR: 0.8,
+    telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
+    telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
+    telegramEnabled: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+    telegramNotifyEntries: true,
+    telegramNotifyExits: true,
+    telegramAutoMonitor: true
 };
 
 let botState = { status: 'Idle', lastSignal: 'None', tradesToday: 0, currentPnL: 0.0, gammaEnv: 'Neutral', distanceToWall: 145.5 };
 
-let tradeHistory = [
-    { id: 1, time: '2026-11-13 09:30:00', symbol: 'NIFTY', type: 'BUY', price: 23040.5, pnl: 1250.0, status: 'Closed' },
-    { id: 2, time: '2026-11-13 11:15:00', symbol: 'NIFTY', type: 'SELL', price: 23120.0, pnl: -450.0, status: 'Closed' }
-];
+const JOURNAL_DIR = path.join(__dirname, 'data');
+const JOURNAL_FILE = path.join(JOURNAL_DIR, 'journal.json');
+
+function loadJournalEntries() {
+    try {
+        if (!fs.existsSync(JOURNAL_FILE)) return [];
+        const raw = fs.readFileSync(JOURNAL_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function saveJournalEntries(entries) {
+    if (!fs.existsSync(JOURNAL_DIR)) fs.mkdirSync(JOURNAL_DIR, { recursive: true });
+    fs.writeFileSync(JOURNAL_FILE, JSON.stringify(entries, null, 2), 'utf8');
+}
+
+function formatNowIST() {
+    return new Date().toLocaleString('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+    }).replace(',', '');
+}
+
+function computeTradePnl(side, entryPrice, exitPrice, qty) {
+    if (exitPrice == null || exitPrice === '' || Number.isNaN(Number(exitPrice))) return null;
+    const ep = Number(entryPrice), xp = Number(exitPrice), q = Number(qty || 1);
+    const isLongSide = /^(BUY|SELL PE)/i.test(String(side || ''));
+    const diff = isLongSide ? (xp - ep) : (ep - xp);
+    return Math.round(diff * q);
+}
+
+function computeJournalSummary(entries) {
+    const closed = entries.filter(e => e.status === 'Closed' && e.pnl != null);
+    const openCount = entries.filter(e => e.status !== 'Closed').length;
+    const wins = closed.filter(e => Number(e.pnl) > 0);
+    const losses = closed.filter(e => Number(e.pnl) < 0);
+    const grossWin = wins.reduce((s, e) => s + Number(e.pnl), 0);
+    const grossLoss = Math.abs(losses.reduce((s, e) => s + Number(e.pnl), 0));
+    const netPnl = Math.round(closed.reduce((s, e) => s + Number(e.pnl || 0), 0));
+    const winRate = closed.length ? Math.round((wins.length / closed.length) * 1000) / 10 : 0;
+    const profitFactor = grossLoss > 0 ? Math.round((grossWin / grossLoss) * 100) / 100 : (grossWin > 0 ? '∞' : 0);
+    const bestPnl = closed.length ? Math.max(...closed.map(e => Number(e.pnl))) : 0;
+    const worstPnl = closed.length ? Math.min(...closed.map(e => Number(e.pnl))) : 0;
+    return {
+        total: entries.length,
+        openCount,
+        closedCount: closed.length,
+        wins: wins.length,
+        losses: losses.length,
+        winRate: `${winRate}%`,
+        netPnl,
+        profitFactor,
+        bestPnl: Math.round(bestPnl),
+        worstPnl: Math.round(worstPnl)
+    };
+}
+
+let strategyJournalCache = { ts: 0, instrument: '', data: null };
 
 // Live market snapshot is provided by ./upstoxMarket.js using Upstox v2/v3 APIs.
 
@@ -46,7 +118,16 @@ app.get('/api/market', async (req, res) => {
     try {
         const force = req.query.force === '1';
         const data = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, force);
-        res.json(data);
+        await processSnapshotForTelegram(data, appConfig).catch(() => null);
+        res.json({
+            ...data,
+            alerts: getTelegramAlertsForDashboard(),
+            telegramStatus: {
+                enabled: Boolean(appConfig.telegramEnabled),
+                hasToken: Boolean(appConfig.telegramBotToken),
+                hasChatId: Boolean(appConfig.telegramChatId)
+            }
+        });
     } catch (err) {
         res.status(502).json({ error: err?.message || 'Failed to load Upstox market data' });
     }
@@ -54,6 +135,12 @@ app.get('/api/market', async (req, res) => {
 let upstoxState = {
     verified: false,
     profile: null,
+    error: null,
+    checkedAt: null
+};
+let telegramBotState = {
+    verified: false,
+    bot: null,
     error: null,
     checkedAt: null
 };
@@ -66,11 +153,13 @@ function maskToken(tok) {
 }
 
 function getSafeConfig() {
-    const { upstoxToken, ...rest } = appConfig;
+    const { upstoxToken, telegramBotToken, ...rest } = appConfig;
     return {
         ...rest,
         hasUpstoxToken: Boolean(upstoxToken),
-        upstoxTokenMasked: maskToken(upstoxToken)
+        upstoxTokenMasked: maskToken(upstoxToken),
+        hasTelegramToken: Boolean(telegramBotToken),
+        telegramTokenMasked: maskToken(telegramBotToken)
     };
 }
 
@@ -125,23 +214,33 @@ app.get('/api/settings', async (req, res) => {
     if (appConfig.upstoxToken && !upstoxState.checkedAt) {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
+    if (appConfig.telegramBotToken && !telegramBotState.checkedAt) {
+        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
+    }
     res.json({
         success: true,
         savedAt: settingsSavedAt,
         appConfig: getSafeConfig(),
-        upstox: upstoxState
+        upstox: upstoxState,
+        telegram: telegramBotState
     });
 });
 
 app.post('/api/settings', async (req, res) => {
     const body = req.body || {};
-    const prevToken = appConfig.upstoxToken;
-    const allowed = ['upstoxToken', 'instrument', 'lotSize', 'actionType', 'maxTrades', 'obMaxAge', 'impATR'];
+    const allowed = [
+        'upstoxToken', 'instrument', 'lotSize', 'actionType', 'maxTrades', 'obMaxAge', 'impATR',
+        'telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'
+    ];
     for (const key of allowed) {
         if (body[key] !== undefined && body[key] !== '') {
             if (key === 'instrument') {
                 const inst = String(body[key]).toUpperCase();
                 if (['NIFTY', 'SENSEX', 'BOTH'].includes(inst)) appConfig.instrument = inst;
+            } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'].includes(key)) {
+                appConfig[key] = body[key] === true || body[key] === 'true';
+            } else if (key === 'telegramChatId') {
+                appConfig.telegramChatId = String(body[key]).trim();
             } else {
                 appConfig[key] = body[key];
             }
@@ -153,16 +252,160 @@ app.post('/api/settings', async (req, res) => {
     if (body.upstoxToken || (appConfig.upstoxToken && !upstoxState.verified)) {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
+    if (body.telegramBotToken || (appConfig.telegramBotToken && !telegramBotState.verified)) {
+        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
+    }
 
     res.json({
         success: true,
         savedAt: settingsSavedAt,
         appConfig: getSafeConfig(),
-        upstox: upstoxState
+        upstox: upstoxState,
+        telegram: telegramBotState
     });
 });
 
-app.get('/api/dashboard', (req, res) => res.json({ botState, appConfig: getSafeConfig(), tradeHistory }));
+app.get('/api/dashboard', (req, res) => {
+    const entries = loadJournalEntries();
+    res.json({ botState, appConfig: getSafeConfig(), tradeHistory: entries });
+});
+
+app.get('/api/journal', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    try {
+        const entries = loadJournalEntries();
+        const force = req.query.force === '1';
+        const now = Date.now();
+        const needReplay = force || !strategyJournalCache.data || strategyJournalCache.instrument !== appConfig.instrument || (now - strategyJournalCache.ts) > 60000;
+
+        const [broker, replay] = await Promise.all([
+            fetchUpstoxBrokerJournal(appConfig.upstoxToken),
+            needReplay
+                ? runBacktestSimulation({
+                    instrument: appConfig.instrument,
+                    lookbackDays: 14,
+                    lots: 1,
+                    niftyLotSize: 25,
+                    sensexLotSize: 60,
+                    obMaxAge: appConfig.obMaxAge,
+                    maxTradesPerDay: appConfig.maxTrades,
+                    useTrendlineExit: true
+                }).catch(() => null)
+                : Promise.resolve(strategyJournalCache.data)
+        ]);
+
+        if (needReplay && replay) {
+            strategyJournalCache = { ts: now, instrument: appConfig.instrument, data: replay };
+        }
+
+        res.json({
+            success: true,
+            entries,
+            summary: computeJournalSummary(entries),
+            broker,
+            strategyTrades: replay?.trades || [],
+            strategySummary: replay ? {
+                startDate: replay.startDate,
+                endDate: replay.endDate,
+                totalTrades: replay.totalTrades,
+                winRate: replay.winRate,
+                netPnL: replay.netPnL,
+                netPnLRaw: replay.netPnLRaw,
+                netPts: replay.netPts
+            } : null
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Failed to load trade journal' });
+    }
+});
+
+app.post('/api/journal', (req, res) => {
+    const body = req.body || {};
+    const symbol = String(body.symbol || '').trim().toUpperCase();
+    const entryPrice = Number(body.entryPrice);
+    if (!symbol || !Number.isFinite(entryPrice) || entryPrice <= 0) {
+        return res.status(400).json({ success: false, error: 'Symbol and valid entry price are required.' });
+    }
+
+    const side = String(body.side || 'SELL PE').trim().toUpperCase();
+    const lots = Math.max(1, Number(body.lots) || 1);
+    const defaultLot = /SENSEX/.test(symbol) ? 60 : 25;
+    const lotSize = Math.max(1, Number(body.lotSize) || defaultLot);
+    const qty = Math.max(1, Number(body.qty) || (lots * lotSize));
+    const exitPrice = (body.exitPrice !== undefined && body.exitPrice !== '' && body.exitPrice !== null)
+        ? Number(body.exitPrice)
+        : null;
+    const isClosed = exitPrice != null && Number.isFinite(exitPrice) && exitPrice > 0;
+    const explicitPnl = (body.pnl !== undefined && body.pnl !== '' && body.pnl !== null && Number.isFinite(Number(body.pnl)))
+        ? Math.round(Number(body.pnl))
+        : null;
+    const pnl = explicitPnl != null ? explicitPnl : (isClosed ? computeTradePnl(side, entryPrice, exitPrice, qty) : null);
+
+    const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        entryTime: String(body.entryTime || formatNowIST()).trim(),
+        exitTime: isClosed ? String(body.exitTime || formatNowIST()).trim() : null,
+        symbol,
+        side,
+        lots,
+        lotSize,
+        qty,
+        entryPrice: Math.round(entryPrice * 100) / 100,
+        exitPrice: isClosed ? Math.round(exitPrice * 100) / 100 : null,
+        sl: body.sl ? Number(body.sl) : null,
+        tp: body.tp ? Number(body.tp) : null,
+        exitReason: isClosed ? String(body.exitReason || 'MANUAL').trim().toUpperCase() : null,
+        setup: String(body.setup || 'OB/FVG').trim(),
+        notes: String(body.notes || '').trim(),
+        pnl,
+        status: isClosed ? 'Closed' : 'Open'
+    };
+
+    const entries = loadJournalEntries();
+    entries.unshift(entry);
+    saveJournalEntries(entries);
+    res.json({ success: true, entry, entries, summary: computeJournalSummary(entries) });
+});
+
+app.patch('/api/journal/:id', (req, res) => {
+    const id = req.params.id;
+    const body = req.body || {};
+    const entries = loadJournalEntries();
+    const idx = entries.findIndex(e => String(e.id) === String(id));
+    if (idx === -1) return res.status(404).json({ success: false, error: 'Journal entry not found' });
+
+    const cur = { ...entries[idx] };
+    if (body.exitPrice !== undefined && body.exitPrice !== '' && body.exitPrice !== null) {
+        const xp = Number(body.exitPrice);
+        if (!Number.isFinite(xp) || xp <= 0) return res.status(400).json({ success: false, error: 'Invalid exit price' });
+        cur.exitPrice = Math.round(xp * 100) / 100;
+        cur.exitTime = String(body.exitTime || formatNowIST()).trim();
+        cur.exitReason = String(body.exitReason || cur.exitReason || 'MANUAL').trim().toUpperCase();
+        cur.status = 'Closed';
+        cur.pnl = computeTradePnl(cur.side, cur.entryPrice, cur.exitPrice, cur.qty);
+    }
+    if (body.notes !== undefined) cur.notes = String(body.notes).trim();
+    if (body.setup !== undefined) cur.setup = String(body.setup).trim();
+    if (body.status === 'Open') {
+        cur.status = 'Open';
+        cur.exitPrice = null;
+        cur.exitTime = null;
+        cur.exitReason = null;
+        cur.pnl = null;
+    }
+
+    entries[idx] = cur;
+    saveJournalEntries(entries);
+    res.json({ success: true, entry: cur, entries, summary: computeJournalSummary(entries) });
+});
+
+app.delete('/api/journal/:id', (req, res) => {
+    const id = req.params.id;
+    const entries = loadJournalEntries();
+    const next = entries.filter(e => String(e.id) !== String(id));
+    saveJournalEntries(next);
+    res.json({ success: true, entries: next, summary: computeJournalSummary(next) });
+});
 
 app.post('/api/backtest', async (req, res) => {
     try {
@@ -184,13 +427,124 @@ app.post('/api/backtest', async (req, res) => {
     }
 });
 
+app.get('/api/telegram', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    if (appConfig.telegramBotToken && !telegramBotState.checkedAt) {
+        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
+    }
+    res.json({
+        success: true,
+        appConfig: getSafeConfig(),
+        telegram: telegramBotState,
+        state: loadTelegramState()
+    });
+});
+
+app.post('/api/telegram/settings', async (req, res) => {
+    const body = req.body || {};
+    if (typeof body.telegramBotToken === 'string' && body.telegramBotToken.trim()) {
+        appConfig.telegramBotToken = body.telegramBotToken.trim();
+        telegramBotState.checkedAt = null;
+    }
+    if (body.telegramChatId !== undefined) {
+        appConfig.telegramChatId = String(body.telegramChatId).trim();
+    }
+    if (body.telegramEnabled !== undefined) {
+        appConfig.telegramEnabled = body.telegramEnabled === true || body.telegramEnabled === 'true';
+    }
+    if (body.telegramNotifyEntries !== undefined) {
+        appConfig.telegramNotifyEntries = body.telegramNotifyEntries === true || body.telegramNotifyEntries === 'true';
+    }
+    if (body.telegramNotifyExits !== undefined) {
+        appConfig.telegramNotifyExits = body.telegramNotifyExits === true || body.telegramNotifyExits === 'true';
+    }
+    if (body.telegramAutoMonitor !== undefined) {
+        appConfig.telegramAutoMonitor = body.telegramAutoMonitor === true || body.telegramAutoMonitor === 'true';
+    }
+    if (!appConfig.telegramBotToken) {
+        telegramBotState = { verified: false, bot: null, error: null, checkedAt: null };
+    } else if (!telegramBotState.checkedAt || body.telegramBotToken) {
+        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
+    }
+    settingsSavedAt = new Date().toISOString();
+    res.json({
+        success: true,
+        savedAt: settingsSavedAt,
+        appConfig: getSafeConfig(),
+        telegram: telegramBotState,
+        state: loadTelegramState()
+    });
+});
+
+app.post('/api/telegram/test', async (req, res) => {
+    try {
+        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, false).catch(() => null);
+        const result = await sendTestTelegramAlert(appConfig, snapshot);
+        res.status(result.ok ? 200 : 400).json({
+            success: result.ok,
+            status: result.status,
+            messageId: result.messageId || null,
+            error: result.error || null,
+            state: result.state,
+            appConfig: getSafeConfig(),
+            telegram: telegramBotState
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Telegram test failed' });
+    }
+});
+
+app.post('/api/telegram/check', async (req, res) => {
+    try {
+        const sendLatest = Boolean(req.body?.sendLatest);
+        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, true);
+        const result = await processSnapshotForTelegram(snapshot, appConfig, { sendLatest });
+        res.json({
+            success: true,
+            sendLatest,
+            seededJustNow: result.seededJustNow,
+            dispatched: result.dispatched,
+            state: result.state,
+            appConfig: getSafeConfig()
+        });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Signal check failed' });
+    }
+});
+
+app.delete('/api/telegram/logs', async (req, res) => {
+    const state = await clearTelegramLogs();
+    res.json({ success: true, state });
+});
+
 app.post('/api/bot/toggle', (req, res) => {
     botState.status = req.body.active ? 'Running' : 'Stopped';
     res.json({ success: true, botState });
 });
 
+let tgMonitorRunning = false;
+async function runBackgroundSignalMonitor() {
+    if (tgMonitorRunning) return;
+    tgMonitorRunning = true;
+    try {
+        const state = loadTelegramState();
+        const shouldPoll = !state.seeded || (appConfig.telegramEnabled && appConfig.telegramAutoMonitor && appConfig.telegramBotToken && appConfig.telegramChatId);
+        if (!shouldPoll) return;
+        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, true);
+        await processSnapshotForTelegram(snapshot, appConfig);
+    } catch (_) {
+        // Keep background monitor resilient on transient network errors
+    } finally {
+        tgMonitorRunning = false;
+    }
+}
+
 if (require.main === module) {
-    app.listen(PORT, '0.0.0.0', () => console.log(`Nifty Trading Portal running on port ${PORT}`));
+    app.listen(PORT, '0.0.0.0', () => {
+        console.log(`Nifty Trading Portal running on port ${PORT}`);
+        setTimeout(() => { runBackgroundSignalMonitor(); }, 3000);
+        setInterval(() => { runBackgroundSignalMonitor(); }, 30000);
+    });
 }
 
 module.exports = app;

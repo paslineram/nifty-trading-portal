@@ -374,6 +374,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
             paperPts += pts;
         }
         if (pos.signalRef) {
+            pos.signalRef.exitTs = ts || null;
             pos.signalRef.exitTime = ts ? formatSignalTime(ts) : null;
             pos.signalRef.exitPrice = Math.round(exitPrice);
             pos.signalRef.exitReason = reason;
@@ -557,7 +558,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 const risk = Math.max(ref - sl, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rr);
-                    const sigRef = { time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup: 'OB/FVG' };
+                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup: 'OB/FVG' };
                     pos = { side: 'SELL PE', ref, sl, tp1, signalRef: sigRef };
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'PE' });
@@ -571,7 +572,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 const risk = Math.max(sl - ref, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rr);
-                    const sigRef = { time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup: 'OB/FVG' };
+                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup: 'OB/FVG' };
                     pos = { side: 'SELL CE', ref, sl, tp1, signalRef: sigRef };
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'CE' });
@@ -1759,8 +1760,53 @@ async function runBacktestSimulation(params = {}) {
     };
 }
 
+async function fetchUpstoxBrokerJournal(token) {
+    if (!token) {
+        return { available: false, reason: 'Upstox Access Token not set in Settings', brokerTrades: [], positions: [], dayPnl: 0 };
+    }
+    try {
+        const [tradesRes, posRes] = await Promise.all([
+            fetchJson(`${UPSTOX_V2}/order/trades/get-trades-for-day`, token).catch(err => ({ _err: err.message })),
+            fetchJson(`${UPSTOX_V2}/portfolio/short-term-positions`, token).catch(err => ({ _err: err.message }))
+        ]);
+
+        if (tradesRes?._err && posRes?._err) {
+            return { available: false, reason: tradesRes._err || posRes._err, brokerTrades: [], positions: [], dayPnl: 0 };
+        }
+
+        const rawTrades = Array.isArray(tradesRes?.data) ? tradesRes.data : [];
+        const rawPos = Array.isArray(posRes?.data) ? posRes.data : [];
+
+        const brokerTrades = rawTrades.map(t => ({
+            id: t.trade_id || t.order_id,
+            time: t.exchange_timestamp || t.order_timestamp || '',
+            symbol: t.trading_symbol || t.instrument_token || '-',
+            exchange: t.exchange || '-',
+            side: t.transaction_type || '-',
+            qty: Number(t.quantity || 0),
+            price: Number(t.average_price || t.price || 0),
+            product: t.product || '-'
+        }));
+
+        const positions = rawPos.map(p => ({
+            symbol: p.trading_symbol || p.instrument_token || '-',
+            product: p.product || '-',
+            qty: Number(p.quantity || 0),
+            buyPrice: Number(p.buy_price || 0),
+            sellPrice: Number(p.sell_price || 0),
+            ltp: Number(p.last_price || 0),
+            pnl: r2(Number(p.pnl ?? ((Number(p.realised || 0)) + (Number(p.unrealised || 0)))))
+        }));
+
+        const dayPnl = r2(positions.reduce((s, p) => s + (p.pnl || 0), 0));
+        return { available: true, reason: null, brokerTrades, positions, dayPnl };
+    } catch (err) {
+        return { available: false, reason: err?.message || 'Could not fetch Upstox broker journal', brokerTrades: [], positions: [], dayPnl: 0 };
+    }
+}
+
 function clearMarketCache() {
     cache.clear();
 }
 
-module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation };
+module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal };

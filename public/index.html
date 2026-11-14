@@ -114,10 +114,27 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       <span id="signals-notice" class="sub">Loading recent index signals…</span>
       <span style="display:flex;align-items:center;gap:8px">
         <small id="signals-refresh-status">Auto-refresh in 30s</small>
-        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadLive(true)">Refresh</button>
+        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadLive(true); loadTelegramStatus();">Refresh</button>
       </span>
     </div>
     <div id="signals-body"><p class="sub">Loading…</p></div>
+    <div class="card" id="signals-tg-card">
+      <div class="hd" style="justify-content:space-between;gap:8px">
+        <div class="hd" style="gap:8px">
+          <h3 style="margin:0">Telegram Signal Alerts</h3>
+          <span id="sig-tg-badge" class="badge mid">CHECKING…</span>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="sendTelegramTest(this)">Send Test Alert</button>
+          <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--up);border-color:var(--up)" onclick="pushLatestSignalToTelegram(this)">Push Latest Signal</button>
+          <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--mut);border-color:var(--mut)" onclick="clearTelegramLogHistory()">Clear Log</button>
+          <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--px);border-color:var(--px)" onclick="openSettingsTab()">Settings</button>
+        </div>
+      </div>
+      <p id="sig-tg-info" class="sub" style="margin-top:6px">Checking Telegram notification configuration…</p>
+      <p id="sig-tg-action-msg" class="sub" style="margin-top:6px;display:none"></p>
+      <div id="sig-tg-logs" style="margin-top:10px"></div>
+    </div>
   </div>
 
   <div id="tab-backtest" class="tab-content">
@@ -177,8 +194,76 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
   </div>
 
   <div id="tab-history" class="tab-content">
-    <div class="card"><h3>Trade Journal &amp; History</h3>
-      <table style="margin-top:10px" id="journal"><tr><th>Time</th><th>Symbol</th><th>Type</th><th>Price</th><th>PnL</th><th>Status</th></tr></table>
+    <div class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+      <span id="jrn-status" class="sub">Loading Trade Journal &amp; Upstox broker feed…</span>
+      <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadJournal(true)">Refresh Journal</button>
+    </div>
+
+    <div class="card">
+      <div class="hd">
+        <h3>Trade Journal Summary</h3>
+        <span id="jrn-net-badge" class="badge mid" style="margin-left:auto">&#8377; 0</span>
+      </div>
+      <div class="stats" id="jrn-kpis" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h3>Log Trade Entry</h3>
+      <form class="f" style="margin:10px 0 4px" onsubmit="addJournalEntry(event)">
+        <label>Symbol <input type="text" id="jrn-symbol" list="jrn-symbols" value="NIFTY" oninput="syncJournalLotDefault()" required></label>
+        <datalist id="jrn-symbols"><option value="NIFTY"><option value="SENSEX"><option value="NIFTY PE"><option value="NIFTY CE"><option value="SENSEX PE"><option value="SENSEX CE"></datalist>
+        <label>Side <select id="jrn-side"><option value="SELL PE">SELL PE</option><option value="SELL CE">SELL CE</option><option value="BUY">BUY</option><option value="SELL">SELL</option></select></label>
+        <label>Lots <input type="number" id="jrn-lots" value="1" min="1"></label>
+        <label>Lot Size <input type="number" id="jrn-lotsize" value="25" min="1"></label>
+        <label>Entry Price <input type="number" step="0.05" id="jrn-entry" placeholder="e.g. 25110" required></label>
+        <label>Exit Price <input type="number" step="0.05" id="jrn-exit" placeholder="Blank = Open"></label>
+        <label>Exit Reason <select id="jrn-reason"><option value="MANUAL">MANUAL</option><option value="TP1">TP1</option><option value="TL BREAK">TL BREAK</option><option value="SL">SL</option><option value="EOD">EOD</option></select></label>
+        <label>Setup <input type="text" id="jrn-setup" value="OB/FVG"></label>
+        <label style="flex:2;min-width:200px">Notes <input type="text" id="jrn-notes" placeholder="Reason / trendline / execution note"></label>
+        <button id="jrn-add-btn" class="btn" style="margin-top:auto">Add Trade</button>
+      </form>
+      <p id="jrn-form-msg" class="sub" style="margin-top:6px;display:none"></p>
+    </div>
+
+    <div class="card">
+      <div class="hd" style="justify-content:space-between;margin-bottom:8px;gap:8px">
+        <h3 style="margin:0">Personal Trade Journal</h3>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <input type="text" id="jrn-search" placeholder="Search symbol / notes…" style="width:170px;padding:4px 8px;font-size:12px" oninput="renderJournalEntries()">
+          <select id="jrn-filter" style="width:auto;padding:4px 8px;font-size:12px" onchange="renderJournalEntries()">
+            <option value="ALL">All Entries</option>
+            <option value="OPEN">Open Only</option>
+            <option value="CLOSED">Closed Only</option>
+            <option value="WIN">Winners</option>
+            <option value="LOSS">Losers</option>
+          </select>
+        </div>
+      </div>
+      <div id="jrn-close-box" class="sc" style="display:none;margin-bottom:10px">
+        <h4 id="jrn-close-title">Close Open Trade</h4>
+        <form class="f" onsubmit="submitCloseTrade(event)">
+          <input type="hidden" id="jrn-close-id">
+          <label>Exit Price <input type="number" step="0.05" id="jrn-close-price" required></label>
+          <label>Exit Reason <select id="jrn-close-reason"><option value="MANUAL">MANUAL</option><option value="TL BREAK">TL BREAK</option><option value="TP1">TP1</option><option value="SL">SL</option><option value="EOD">EOD</option></select></label>
+          <label style="flex:2">Closing Note <input type="text" id="jrn-close-note" placeholder="Optional note"></label>
+          <button class="btn" style="margin-top:auto">Save Exit</button>
+          <button type="button" class="btn" style="margin-top:auto;background:var(--mut);border-color:var(--mut)" onclick="document.getElementById('jrn-close-box').style.display='none'">Cancel</button>
+        </form>
+      </div>
+      <table id="journal"></table>
+    </div>
+
+    <div class="card" id="jrn-broker-card">
+      <h3>Upstox Live Broker Trades &amp; Positions (Today)</h3>
+      <div id="jrn-broker-body" style="margin-top:8px"><p class="sub">Checking Upstox order/trade book…</p></div>
+    </div>
+
+    <div class="card">
+      <div class="hd" style="justify-content:space-between;margin-bottom:6px">
+        <h3 style="margin:0">Strategy Signal Journal <small style="font-weight:400">(14-Day Single Lot: NIFTY 25 / SENSEX 60)</small></h3>
+        <span id="jrn-strat-badge" class="badge mid"></span>
+      </div>
+      <div id="jrn-strategy-body"><p class="sub">Loading recent strategy trades…</p></div>
     </div>
   </div>
 
@@ -191,6 +276,25 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <button class="btn" style="margin-top:auto">Save Settings</button>
       </form>
       <p id="settings-msg" class="sub" style="margin-top:10px;display:none"></p>
+    </div>
+    <div class="card">
+      <div class="hd" style="justify-content:space-between">
+        <h3>Telegram Signal Notifications</h3>
+        <span id="settings-tg-badge" class="badge mid">NOT CONFIGURED</span>
+      </div>
+      <p class="sub" style="margin-top:4px">Create a bot via <code>@BotFather</code>, get your Chat/Group ID, and enable real-time alerts for new entries and exits (TP1, SL, TL Break).</p>
+      <form class="f" style="margin-top:12px" onsubmit="saveTelegramSettings(event)">
+        <label>Telegram Bot Token <input type="password" id="tg-token" placeholder="Paste BotFather token (e.g. 123456:ABC...)"></label>
+        <label>Telegram Chat ID <input type="text" id="tg-chatid" placeholder="e.g. 123456789 or -1001234567890"></label>
+        <label>Telegram Alerts <select id="tg-enabled"><option value="true">Enabled</option><option value="false">Paused</option></select></label>
+        <label>Entry Signals <select id="tg-entries"><option value="true">Notify (SELL PE / CE)</option><option value="false">Mute</option></select></label>
+        <label>Exit Alerts <select id="tg-exits"><option value="true">Notify (TP1 / SL / TL Break)</option><option value="false">Mute</option></select></label>
+        <label>Auto Monitor <select id="tg-monitor"><option value="true">30s Background Poll</option><option value="false">Manual / Tab Only</option></select></label>
+        <button id="tg-save-btn" class="btn" style="margin-top:auto">Save Telegram</button>
+        <button type="button" class="btn" style="margin-top:auto;background:var(--px);border-color:var(--px)" onclick="sendTelegramTest(this)">Send Test Alert</button>
+        <button type="button" class="btn" style="margin-top:auto;background:var(--up);border-color:var(--up)" onclick="pushLatestSignalToTelegram(this)">Push Latest Signal</button>
+      </form>
+      <p id="tg-msg" class="sub" style="margin-top:10px;display:none"></p>
     </div>
     <div id="settings-result" class="card" style="display:none">
       <div class="hd" style="justify-content:space-between">
@@ -219,6 +323,7 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListe
   if (btn.dataset.tab === 'dashboard' || btn.dataset.tab === 'xray' || btn.dataset.tab === 'signals') {
     if (!hasLiveData || Date.now() - lastLiveAtMs >= 30000) loadLive();
   }
+  if (btn.dataset.tab === 'signals') loadTelegramStatus();
   if (btn.dataset.tab === 'backtest' && !hasBacktestRun) runBacktest();
   if (btn.dataset.tab === 'history') loadJournal();
   if (btn.dataset.tab === 'settings') loadSettings();
@@ -632,10 +737,13 @@ function renderLive(m) {
     `<div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
      <div class="card"><h3>Autopilot position</h3><p class="sub" style="margin-top:8px">${m.autopilot || 'No open position.'}</p></div>
      <div class="card"><h3>Paper condor (sideways idea)</h3><p class="sub" style="margin-top:8px">${m.condor || 'No paper condor open. Start <code>python -W ignore condor_paper.py</code> to paper-trade sideways days.'}</p></div>
-     <div class="card"><h3>Alerts logged by the monitor</h3>
-       <table style="margin-top:6px"><tr><th>Logged</th><th>Index</th><th>Bar</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th></tr>
-       ${m.alerts.length ? m.alerts.map(a => `<tr><td>${a.logged}</td><td>${a.index}</td><td>${a.bar}</td><td>${a.side}</td><td>${a.ref}</td><td>${a.sl}</td><td>${a.tp1}</td><td>${a.setup}</td></tr>`).join('') : '<tr><td colspan="8" class="sub">Nothing yet - appears when monitor.py live fires a signal.</td></tr>'}</table></div>
-     <div class="card"><details><summary>Order log &amp; monitor log</summary><p class="sub" style="margin-top:8px">No log entries yet.</p></details></div>`;
+     <div class="card"><h3>Signal &amp; Telegram Alerts Log</h3>
+       <table style="margin-top:6px"><tr><th>Logged</th><th>Index</th><th>Event</th><th>Side</th><th>Ref</th><th>Status</th><th>Details</th><th>Setup</th></tr>
+       ${m.alerts.length ? m.alerts.map(a => {
+         const stCls = a.sl === 'SENT' ? 'GOOD' : a.sl === 'FAILED' ? 'BAD' : 'NEUTRAL';
+         return `<tr><td>${escHtml(a.logged)}</td><td><b>${escHtml(a.index)}</b></td><td>${escHtml(a.bar)}</td><td class="${/PE/.test(a.side) ? 'upt' : /CE/.test(a.side) ? 'dnt' : ''}">${escHtml(a.side)}</td><td>${escHtml(a.ref)}</td><td><span class="pill ${stCls}">${escHtml(a.sl)}</span></td><td>${escHtml(a.tp1)}</td><td>${escHtml(a.setup)}</td></tr>`;
+       }).join('') : '<tr><td colspan="8" class="sub">No Telegram alerts dispatched yet. Configure your Telegram Bot Token &amp; Chat ID in Settings.</td></tr>'}</table></div>
+     <div class="card"><details><summary>Order log &amp; monitor log</summary><p class="sub" style="margin-top:8px">${m.telegramStatus?.enabled ? '30s background Telegram signal monitor is active.' : 'Telegram alerts currently paused or unconfigured.'}</p></details></div>`;
   renderXRay(m);
   renderSignalSummary(m);
 }
@@ -649,6 +757,7 @@ async function loadLive(force = false) {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Could not load market data.');
     renderLive(data);
+    loadTelegramStatus();
     hasLiveData = true;
     lastLiveAtMs = Date.now();
   } catch (e) {
@@ -814,13 +923,455 @@ async function runBacktest(e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Run Simulation'; }
   }
 }
-async function loadJournal() {
-  const {tradeHistory} = await (await fetch('/api/dashboard')).json();
-  document.getElementById('journal').innerHTML = '<tr><th>Time</th><th>Symbol</th><th>Type</th><th>Price</th><th>PnL</th><th>Status</th></tr>' +
-    tradeHistory.map(t => `<tr><td>${t.time}</td><td>${t.symbol}</td><td class="${t.type === 'BUY' ? 'upt' : 'dnt'}">${t.type}</td><td>${fmt(t.price)}</td><td class="${t.pnl < 0 ? 'dnt' : 'upt'}">${t.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(t.pnl))}</td><td>${t.status}</td></tr>`).join('');
+let journalData = { entries: [], summary: null, broker: null, strategyTrades: [], strategySummary: null };
+
+function syncJournalLotDefault() {
+  const sym = (document.getElementById('jrn-symbol')?.value || '').toUpperCase();
+  const lotEl = document.getElementById('jrn-lotsize');
+  if (!lotEl) return;
+  if (sym.includes('SENSEX')) lotEl.value = 60;
+  else if (sym.includes('NIFTY')) lotEl.value = 25;
+}
+
+function renderJournalSummary() {
+  const s = journalData.summary || { total: 0, openCount: 0, closedCount: 0, wins: 0, losses: 0, winRate: '0%', netPnl: 0, profitFactor: 0, bestPnl: 0, worstPnl: 0 };
+  const badge = document.getElementById('jrn-net-badge');
+  if (badge) {
+    badge.className = `badge ${s.netPnl > 0 ? 'up' : s.netPnl < 0 ? 'dn' : 'mid'}`;
+    badge.textContent = `${s.netPnl < 0 ? '-' : '+'}₹ ${fmt(Math.abs(s.netPnl))}`;
+  }
+  const kpis = document.getElementById('jrn-kpis');
+  if (kpis) {
+    kpis.innerHTML = `
+      <div><small>Logged Trades</small><b>${s.total}</b> <small>(${s.openCount} Open / ${s.closedCount} Closed)</small></div>
+      <div><small>Win Rate</small><b class="${parseFloat(s.winRate) >= 50 ? 'upt' : s.closedCount ? 'dnt' : ''}">${escHtml(s.winRate)}</b> <small>(${s.wins}W / ${s.losses}L)</small></div>
+      <div><small>Profit Factor</small><b>${escHtml(s.profitFactor)}</b></div>
+      <div><small>Net Realized PnL</small><b class="${tone(s.netPnl)}">${s.netPnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(s.netPnl))}</b></div>
+      <div><small>Best / Worst Trade</small><b><span class="upt">+&#8377;${fmt(Math.max(0, s.bestPnl))}</span> / <span class="dnt">${s.worstPnl < 0 ? '-' : ''}&#8377;${fmt(Math.abs(Math.min(0, s.worstPnl)))}</span></b></div>`;
+  }
+}
+
+function renderJournalEntries() {
+  const tbl = document.getElementById('journal');
+  if (!tbl) return;
+  const filter = document.getElementById('jrn-filter')?.value || 'ALL';
+  const q = (document.getElementById('jrn-search')?.value || '').trim().toUpperCase();
+  const rows = (journalData.entries || []).filter(t => {
+    if (filter === 'OPEN' && t.status !== 'Open') return false;
+    if (filter === 'CLOSED' && t.status !== 'Closed') return false;
+    if (filter === 'WIN' && !(t.pnl > 0)) return false;
+    if (filter === 'LOSS' && !(t.pnl < 0)) return false;
+    if (q && !(`${t.symbol} ${t.setup || ''} ${t.notes || ''} ${t.exitReason || ''}`.toUpperCase().includes(q))) return false;
+    return true;
+  });
+
+  const hdr = '<tr><th>Entry Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>Setup / Notes</th><th>PnL (&#8377;)</th><th>Status</th><th>Action</th></tr>';
+  if (!rows.length) {
+    tbl.innerHTML = hdr + '<tr><td colspan="10" class="sub">No personal journal entries yet. Log a trade above or click "+ Log" on any strategy trade below.</td></tr>';
+    return;
+  }
+
+  tbl.innerHTML = hdr + rows.map(t => {
+    const isBullSide = /^(BUY|SELL PE)/i.test(t.side || '');
+    const pnlTxt = t.pnl == null ? '-' : `${t.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(t.pnl))}`;
+    const pnlCls = t.pnl == null ? 'sub' : tone(t.pnl);
+    const stPill = t.status === 'Open' ? 'INFO' : (t.pnl >= 0 ? 'GOOD' : 'BAD');
+    const noteLine = [t.setup, t.exitReason ? `Exit: ${t.exitReason}` : '', t.notes].filter(Boolean).join(' · ');
+    const closeBtn = t.status === 'Open'
+      ? `<button type="button" class="btn" style="padding:2px 7px;font-size:11px;margin-right:4px" onclick="openCloseTradeBox('${escHtml(t.id)}')">Close</button>`
+      : '';
+    return `<tr>
+      <td>${escHtml(t.entryTime)}${t.exitTime ? `<br><small>→ ${escHtml(t.exitTime)}</small>` : ''}</td>
+      <td><b>${escHtml(t.symbol)}</b></td>
+      <td class="${isBullSide ? 'upt' : 'dnt'}"><b>${escHtml(t.side)}</b></td>
+      <td>${t.qty} <small>(${t.lots || 1}×${t.lotSize || t.qty})</small></td>
+      <td>${fmt(t.entryPrice)}</td>
+      <td>${t.exitPrice != null ? fmt(t.exitPrice) : '-'}</td>
+      <td><small style="color:var(--fg)">${escHtml(noteLine || '-')}</small></td>
+      <td class="${pnlCls}"><b>${pnlTxt}</b></td>
+      <td><span class="pill ${stPill}">${escHtml(t.status)}</span></td>
+      <td style="white-space:nowrap">${closeBtn}<button type="button" class="btn" style="padding:2px 7px;font-size:11px;background:var(--dn);border-color:var(--dn)" onclick="deleteJournalEntry('${escHtml(t.id)}')">Del</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function renderBrokerJournal() {
+  const el = document.getElementById('jrn-broker-body');
+  if (!el) return;
+  const b = journalData.broker;
+  if (!b || !b.available) {
+    el.innerHTML = `<p class="sub">${escHtml(b?.reason || 'Upstox broker trade book unavailable.')}</p>`;
+    return;
+  }
+  const hasTrades = (b.brokerTrades || []).length > 0;
+  const hasPos = (b.positions || []).length > 0;
+  if (!hasTrades && !hasPos) {
+    el.innerHTML = '<p class="sub">Upstox connected — 0 executed broker trades or open positions today.</p>';
+    return;
+  }
+  let html = '';
+  if (hasPos) {
+    html += `<div class="hd" style="margin-bottom:6px"><h4 style="margin:0">Today\'s Positions</h4><small class="${tone(b.dayPnl)}">Day MTM: <b>${b.dayPnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(b.dayPnl))}</b></small></div>
+      <table style="margin-bottom:10px"><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>LTP</th><th>PnL (&#8377;)</th></tr>
+      ${b.positions.map(p => `<tr><td><b>${escHtml(p.symbol)}</b></td><td>${escHtml(p.product)}</td><td>${p.qty}</td><td>${fmt2(p.buyPrice)}</td><td>${fmt2(p.sellPrice)}</td><td>${fmt2(p.ltp)}</td><td class="${tone(p.pnl)}"><b>${p.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(p.pnl))}</b></td></tr>`).join('')}</table>`;
+  }
+  if (hasTrades) {
+    html += `<h4 style="margin:0 0 6px">Executed Trades Today</h4>
+      <table><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg Price</th><th>Product</th></tr>
+      ${b.brokerTrades.map(t => `<tr><td>${escHtml(t.time)}</td><td><b>${escHtml(t.symbol)}</b></td><td class="${t.side === 'BUY' ? 'upt' : 'dnt'}"><b>${escHtml(t.side)}</b></td><td>${t.qty}</td><td>${fmt2(t.price)}</td><td>${escHtml(t.product)}</td></tr>`).join('')}</table>`;
+  }
+  el.innerHTML = html;
+}
+
+function renderStrategyJournal() {
+  const el = document.getElementById('jrn-strategy-body');
+  const badge = document.getElementById('jrn-strat-badge');
+  if (!el) return;
+  const trades = journalData.strategyTrades || [];
+  const ss = journalData.strategySummary;
+  if (badge && ss) {
+    badge.className = `badge ${ss.netPnLRaw >= 0 ? 'up' : 'dn'}`;
+    badge.textContent = `${ss.totalTrades} trades · ${ss.winRate} win · ${ss.netPnL}`;
+  }
+  if (!trades.length) {
+    el.innerHTML = '<p class="sub">No strategy signals triggered in the last 14 days.</p>';
+    return;
+  }
+  el.innerHTML = `<table>
+    <tr><th>Entry Time</th><th>Index</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>Reason</th><th>Pts</th><th>PnL (&#8377;)</th><th>Journal</th></tr>
+    ${trades.map((t, idx) => {
+      const sideCls = /PE/.test(t.side) ? 'upt' : 'dnt';
+      const rsnCls = t.exitReason === 'TP1' ? 'GOOD' : t.exitReason === 'TL BREAK' ? 'INFO' : t.exitReason === 'SL' ? 'BAD' : 'NEUTRAL';
+      return `<tr>
+        <td>${escHtml(t.entryTime)}</td>
+        <td><b>${escHtml(t.index)}</b></td>
+        <td class="${sideCls}"><b>${escHtml(t.side)}</b></td>
+        <td>${t.qty}</td>
+        <td>${fmt(t.entryPrice)}</td>
+        <td>${fmt(t.exitPrice)} <small>(${escHtml(t.exitTime)})</small></td>
+        <td><span class="pill ${rsnCls}">${escHtml(t.exitReason)}</span></td>
+        <td class="${tone(t.pts)}">${sgn(t.pts)}</td>
+        <td class="${tone(t.pnl)}"><b>${t.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(t.pnl))}</b></td>
+        <td><button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="copyStrategyToJournal(${idx})">+ Log</button></td>
+      </tr>`;
+    }).join('')}
+  </table>`;
+}
+
+async function loadJournal(force = false) {
+  const st = document.getElementById('jrn-status');
+  if (st) { st.className = 'sub'; st.textContent = 'Syncing trade journal & Upstox history…'; }
+  try {
+    const r = await fetch(`/api/journal${force ? '?force=1' : ''}`, { cache: 'no-store' });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Could not load journal');
+    journalData = data;
+    renderJournalSummary();
+    renderJournalEntries();
+    renderBrokerJournal();
+    renderStrategyJournal();
+    if (st) {
+      const syncedAt = new Date().toLocaleTimeString('en-GB', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + ' IST';
+      st.textContent = `Journal synced (${data.summary?.total || 0} personal entries, ${data.strategyTrades?.length || 0} 14-day strategy signals) · Updated ${syncedAt}.`;
+    }
+  } catch (e) {
+    if (st) { st.className = 'dnt'; st.textContent = e.message || 'Could not load journal.'; }
+  }
+}
+
+async function addJournalEntry(e) {
+  e.preventDefault();
+  const msgEl = document.getElementById('jrn-form-msg');
+  const btn = document.getElementById('jrn-add-btn');
+  const payload = {
+    symbol: document.getElementById('jrn-symbol').value.trim(),
+    side: document.getElementById('jrn-side').value,
+    lots: +document.getElementById('jrn-lots').value || 1,
+    lotSize: +document.getElementById('jrn-lotsize').value || 25,
+    entryPrice: +document.getElementById('jrn-entry').value,
+    exitPrice: document.getElementById('jrn-exit').value ? +document.getElementById('jrn-exit').value : null,
+    exitReason: document.getElementById('jrn-reason').value,
+    setup: document.getElementById('jrn-setup').value.trim(),
+    notes: document.getElementById('jrn-notes').value.trim()
+  };
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Failed to save entry');
+    journalData.entries = data.entries;
+    journalData.summary = data.summary;
+    renderJournalSummary();
+    renderJournalEntries();
+    document.getElementById('jrn-entry').value = '';
+    document.getElementById('jrn-exit').value = '';
+    document.getElementById('jrn-notes').value = '';
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'upt'; msgEl.textContent = `Saved ${data.entry.symbol} (${data.entry.side}) to Trade Journal.`; }
+  } catch (err) {
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'dnt'; msgEl.textContent = err.message || 'Save failed'; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function openCloseTradeBox(id) {
+  const t = (journalData.entries || []).find(x => String(x.id) === String(id));
+  if (!t) return;
+  document.getElementById('jrn-close-id').value = t.id;
+  document.getElementById('jrn-close-title').textContent = `Close ${t.symbol} (${t.side}) entered @ ${fmt(t.entryPrice)}`;
+  document.getElementById('jrn-close-price').value = t.entryPrice;
+  document.getElementById('jrn-close-note').value = t.notes || '';
+  document.getElementById('jrn-close-box').style.display = 'block';
+}
+
+async function submitCloseTrade(e) {
+  e.preventDefault();
+  const id = document.getElementById('jrn-close-id').value;
+  const payload = {
+    exitPrice: +document.getElementById('jrn-close-price').value,
+    exitReason: document.getElementById('jrn-close-reason').value,
+    notes: document.getElementById('jrn-close-note').value.trim()
+  };
+  const r = await fetch(`/api/journal/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const data = await r.json();
+  if (r.ok && data.success) {
+    journalData.entries = data.entries;
+    journalData.summary = data.summary;
+    document.getElementById('jrn-close-box').style.display = 'none';
+    renderJournalSummary();
+    renderJournalEntries();
+  }
+}
+
+async function deleteJournalEntry(id) {
+  const r = await fetch(`/api/journal/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const data = await r.json();
+  if (r.ok && data.success) {
+    journalData.entries = data.entries;
+    journalData.summary = data.summary;
+    renderJournalSummary();
+    renderJournalEntries();
+  }
+}
+
+async function copyStrategyToJournal(idx) {
+  const t = (journalData.strategyTrades || [])[idx];
+  if (!t) return;
+  const msgEl = document.getElementById('jrn-form-msg');
+  const lotSize = t.index === 'SENSEX' ? 60 : 25;
+  const payload = {
+    symbol: t.index,
+    side: t.side,
+    lots: 1,
+    lotSize,
+    qty: t.qty || lotSize,
+    entryTime: t.entryTime,
+    exitTime: t.exitReason === 'OPEN' ? null : t.exitTime,
+    entryPrice: t.entryPrice,
+    exitPrice: t.exitReason === 'OPEN' ? null : t.exitPrice,
+    sl: t.sl,
+    tp: t.tp1,
+    exitReason: t.exitReason === 'OPEN' ? null : t.exitReason,
+    setup: t.setup || 'OB/FVG',
+    notes: `Imported from ${t.index} strategy replay (${sgn(t.pts)} pts)`
+  };
+  const r = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const data = await r.json();
+  if (r.ok && data.success) {
+    journalData.entries = data.entries;
+    journalData.summary = data.summary;
+    renderJournalSummary();
+    renderJournalEntries();
+    if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'upt'; msgEl.textContent = `Logged ${t.index} ${t.side} (${t.entryTime}) to Personal Trade Journal.`; }
+  }
 }
 function escHtml(v) {
   return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function openSettingsTab() {
+  const btn = document.querySelector('.tab-btn[data-tab="settings"]');
+  if (btn) btn.click();
+}
+
+function renderTelegramLogSection(data) {
+  const badge = document.getElementById('sig-tg-badge');
+  const info = document.getElementById('sig-tg-info');
+  const logsEl = document.getElementById('sig-tg-logs');
+  const setBadge = document.getElementById('settings-tg-badge');
+  if (!data || !data.appConfig) return;
+
+  const cfg = data.appConfig;
+  const tg = data.telegram || {};
+  const st = data.state || {};
+  const ready = Boolean(cfg.hasTelegramToken && cfg.telegramChatId);
+
+  const badgeClass = (cfg.telegramEnabled && ready) ? 'badge up' : ready ? 'badge mid' : 'badge dn';
+  const badgeText = (cfg.telegramEnabled && ready)
+    ? (tg.verified && tg.bot?.username ? `ACTIVE · @${tg.bot.username}` : 'TELEGRAM ACTIVE')
+    : (ready ? 'PAUSED' : 'NOT CONFIGURED');
+
+  if (badge) { badge.className = badgeClass; badge.textContent = badgeText; }
+  if (setBadge) {
+    setBadge.className = tg.verified ? 'badge up' : cfg.hasTelegramToken ? 'badge dn' : 'badge mid';
+    setBadge.textContent = tg.verified && tg.bot?.username
+      ? `VERIFIED · @${tg.bot.username}`
+      : (cfg.hasTelegramToken ? 'BOT TOKEN INVALID' : 'TOKEN NOT SET');
+  }
+
+  if (info) {
+    const parts = [
+      `Instrument: <b>${escHtml(cfg.instrument || 'BOTH')}</b>`,
+      `Entries: <b>${cfg.telegramNotifyEntries !== false ? 'ON' : 'OFF'}</b>`,
+      `Exits: <b>${cfg.telegramNotifyExits !== false ? 'ON' : 'OFF'}</b>`,
+      `Chat ID: <code>${escHtml(cfg.telegramChatId || 'Not set')}</code>`,
+      `Token: <code>${escHtml(cfg.hasTelegramToken ? cfg.telegramTokenMasked : 'Not set')}</code>`
+    ];
+    if (st.lastCheckAt) {
+      const chk = new Date(st.lastCheckAt).toLocaleTimeString('en-GB', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + ' IST';
+      parts.push(`Last monitor scan: ${chk}`);
+    }
+    info.innerHTML = parts.join(' &middot; ');
+  }
+
+  if (logsEl) {
+    const logs = st.logs || [];
+    if (!logs.length) {
+      logsEl.innerHTML = '<p class="sub">No Telegram alerts dispatched yet. Historical signals on boot are baselined automatically so only new live signals alert you — or click <b>Push Latest Signal</b> / <b>Send Test Alert</b> above.</p>';
+    } else {
+      logsEl.innerHTML = `<table>
+        <tr><th>Time</th><th>Index</th><th>Type</th><th>Side</th><th>Price</th><th>Message Summary</th><th>Delivery</th></tr>
+        ${logs.map(l => {
+          const stPill = l.status === 'SENT' ? 'GOOD' : l.status === 'FAILED' ? 'BAD' : 'NEUTRAL';
+          const sideCls = /PE/.test(l.side) ? 'upt' : /CE/.test(l.side) ? 'dnt' : '';
+          return `<tr>
+            <td>${escHtml(l.loggedAt)}</td>
+            <td><b>${escHtml(l.index)}</b></td>
+            <td><span class="pill INFO">${escHtml(l.type)}</span></td>
+            <td class="${sideCls}"><b>${escHtml(l.side)}</b></td>
+            <td>${l.price != null && l.price !== '-' ? fmt(l.price) : '-'}</td>
+            <td>${escHtml(l.summary)}${l.error ? `<br><small class="dnt">${escHtml(l.error)}</small>` : ''}</td>
+            <td><span class="pill ${stPill}">${escHtml(l.status)}</span></td>
+          </tr>`;
+        }).join('')}
+      </table>`;
+    }
+  }
+}
+
+async function loadTelegramStatus() {
+  try {
+    const r = await fetch('/api/telegram', { cache: 'no-store' });
+    if (!r.ok) return;
+    const data = await r.json();
+    renderTelegramLogSection(data);
+  } catch (_) {}
+}
+
+function showTgActionMsg(text, cls) {
+  ['sig-tg-action-msg', 'tg-msg'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.style.display = 'block';
+      el.className = cls;
+      el.textContent = text;
+    }
+  });
+}
+
+async function saveTelegramSettings(e) {
+  e.preventDefault();
+  const btn = document.getElementById('tg-save-btn');
+  const msg = document.getElementById('tg-msg');
+  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = 'Saving Telegram configuration & verifying Bot Token…'; }
+  if (btn) btn.disabled = true;
+
+  const body = {
+    telegramChatId: document.getElementById('tg-chatid').value.trim(),
+    telegramEnabled: document.getElementById('tg-enabled').value === 'true',
+    telegramNotifyEntries: document.getElementById('tg-entries').value === 'true',
+    telegramNotifyExits: document.getElementById('tg-exits').value === 'true',
+    telegramAutoMonitor: document.getElementById('tg-monitor').value === 'true'
+  };
+  const tok = document.getElementById('tg-token').value.trim();
+  if (tok) body.telegramBotToken = tok;
+
+  try {
+    const resp = await fetch('/api/telegram/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) throw new Error(data.error || 'Failed to save Telegram settings');
+    document.getElementById('tg-token').value = '';
+    if (data.telegram?.verified) {
+      showTgActionMsg(`Telegram bot @${data.telegram.bot?.username || 'bot'} verified and saved.`, 'upt');
+    } else if (data.appConfig?.hasTelegramToken && data.telegram?.error) {
+      showTgActionMsg(`Saved, but Telegram Bot verification returned: ${data.telegram.error}`, 'mid');
+    } else {
+      showTgActionMsg('Telegram configuration saved.', 'upt');
+    }
+    renderTelegramLogSection(data);
+    loadSettings();
+  } catch (err) {
+    showTgActionMsg(err.message || 'Could not save Telegram settings.', 'dnt');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function sendTelegramTest(btn) {
+  if (btn) btn.disabled = true;
+  showTgActionMsg('Sending test alert to Telegram…', 'sub');
+  try {
+    const r = await fetch('/api/telegram/test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Telegram test alert failed');
+    showTgActionMsg(`Test alert delivered to Telegram (message #${data.messageId || 'ok'}).`, 'upt');
+    loadTelegramStatus();
+  } catch (err) {
+    showTgActionMsg(err.message || 'Could not deliver Telegram test alert.', 'dnt');
+    loadTelegramStatus();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function pushLatestSignalToTelegram(btn) {
+  if (btn) btn.disabled = true;
+  showTgActionMsg('Fetching latest live signals and sending to Telegram…', 'sub');
+  try {
+    const r = await fetch('/api/telegram/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sendLatest: true })
+    });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Failed to push latest signal');
+    const sent = (data.dispatched || []).filter(d => d.ok).length;
+    const failed = (data.dispatched || []).filter(d => !d.ok);
+    if (sent > 0) {
+      showTgActionMsg(`Sent ${sent} latest signal alert(s) to Telegram.`, 'upt');
+    } else if (failed.length) {
+      showTgActionMsg(`Telegram delivery failed: ${failed[0].error || 'Check Bot Token and Chat ID'}`, 'dnt');
+    } else {
+      showTgActionMsg('No recent signals available for the active instrument filter.', 'mid');
+    }
+    loadTelegramStatus();
+  } catch (err) {
+    showTgActionMsg(err.message || 'Could not push latest signal.', 'dnt');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function clearTelegramLogHistory() {
+  const r = await fetch('/api/telegram/logs', { method: 'DELETE' });
+  if (r.ok) {
+    showTgActionMsg('Telegram alert log cleared.', 'sub');
+    loadTelegramStatus();
+  }
 }
 
 function renderSettingsResult(data) {
@@ -833,10 +1384,19 @@ function renderSettingsResult(data) {
   }
   const cfg = data.appConfig;
   const upx = data.upstox || {};
+  const tg = data.telegram || {};
   const p = upx.profile;
 
   if (cfg.instrument) document.getElementById('set-sym').value = cfg.instrument;
   if (cfg.maxTrades != null) document.getElementById('set-maxtrades').value = cfg.maxTrades;
+  if (document.getElementById('tg-chatid') && cfg.telegramChatId !== undefined) {
+    document.getElementById('tg-chatid').value = cfg.telegramChatId || '';
+  }
+  if (document.getElementById('tg-enabled')) document.getElementById('tg-enabled').value = String(Boolean(cfg.telegramEnabled));
+  if (document.getElementById('tg-entries')) document.getElementById('tg-entries').value = String(cfg.telegramNotifyEntries !== false);
+  if (document.getElementById('tg-exits')) document.getElementById('tg-exits').value = String(cfg.telegramNotifyExits !== false);
+  if (document.getElementById('tg-monitor')) document.getElementById('tg-monitor').value = String(cfg.telegramAutoMonitor !== false);
+  renderTelegramLogSection({ appConfig: cfg, telegram: tg });
 
   if (upx.verified && p) {
     badge.className = 'badge up';
@@ -877,6 +1437,9 @@ function renderSettingsResult(data) {
       <tr><td style="width:28%">Upstox Token</td><td><code>${escHtml(cfg.hasUpstoxToken ? cfg.upstoxTokenMasked : 'Not set')}</code></td></tr>
       <tr><td>Signal Instrument</td><td><b>${escHtml(cfg.instrument === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : cfg.instrument)}</b></td></tr>
       <tr><td>Max Trades / Day</td><td>${escHtml(cfg.maxTrades)}</td></tr>
+      <tr><td>Telegram Alerts</td><td><b>${cfg.telegramEnabled ? 'Enabled' : 'Paused'}</b> (${tg.verified && tg.bot?.username ? '@' + escHtml(tg.bot.username) : (cfg.hasTelegramToken ? 'Token set' : 'Token not set')})</td></tr>
+      <tr><td>Telegram Chat ID</td><td><code>${escHtml(cfg.telegramChatId || 'Not set')}</code></td></tr>
+      <tr><td>Telegram Token</td><td><code>${escHtml(cfg.hasTelegramToken ? cfg.telegramTokenMasked : 'Not set')}</code></td></tr>
       <tr><td>Lot Size</td><td>${escHtml(cfg.lotSize)}</td></tr>
       <tr><td>Action Type</td><td>${escHtml(cfg.actionType)}</td></tr>
       <tr><td>OB Max Age</td><td>${escHtml(cfg.obMaxAge)}</td></tr>
