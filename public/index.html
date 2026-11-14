@@ -1,397 +1,274 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paslin &amp; Nifty/Sensex Algo Trading Portal</title>
-    <style>
-        :root {
-            --bg: #f8fafc;
-            --fg: #0f172a;
-            --mut: #64748b;
-            --card: #ffffff;
-            --bd: #e2e8f0;
-            --up: #16845b;
-            --dn: #c43a3a;
-            --mid: #8a6d1d;
-            --px: #2b3a55;
-            --hma: #d97706;
-            --cpr: rgba(59, 130, 246, 0.12);
-            --accent: #0284c7;
-            --accent-hover: #0369a1;
-        }
-        *{box-sizing:border-box; margin:0; padding:0;}
-        body{font:13px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--fg);padding:12px;max-width:1480px;margin:auto;}
-        header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
-        h2{margin:2px 0} h3{margin:0} h4{margin:8px 0 4px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-        .clock,.sub,.muted,small,.foot{color:var(--mut);font-size:12px}
-        .card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
-        .hd{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
-        .big{font-size:19px;margin:0 4px;font-weight:700}
-        .badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid currentColor}
-        .badge.up,.upt{color:var(--up)} .badge.dn,.dnt{color:var(--dn)} .badge.mid{color:var(--mid)}
-        .stats{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
-        .stats div{flex:1;min-width:70px;background:var(--bg);border-radius:6px;padding:5px 7px}
-        .stats small{display:block;font-size:10px} .stats b{font-size:14px}
-        nav.tabs{display:flex;gap:6px;margin:8px 0 12px;flex-wrap:wrap}
-        nav.tabs button, nav.tabs a{display:inline-block;padding:6px 16px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);text-decoration:none;font-size:13px;font-weight:600;cursor:pointer;transition:background .15s}
-        nav.tabs button:hover, nav.tabs a:hover{background:var(--cpr)}
-        nav.tabs button.active, nav.tabs a.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-        .tab-content{display:none;}
-        .tab-content.active{display:block;}
-        .dual-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
-        @media(max-width:1100px){.dual-grid{grid-template-columns:1fr}}
-        .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:720px){.two{grid-template-columns:1fr}}
-        table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--bd);padding:4px 6px;font-size:12px;text-align:left}
-        form.f{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
-        form.f label{font-size:11px;color:var(--mut);display:flex;flex-direction:column;gap:3px;flex:1;min-width:160px}
-        input,select{font:inherit;padding:7px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--fg);width:100%}
-        button.btn{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:bold}
-        button.btn:hover{background:var(--accent-hover)}
-        .vote{display:inline-block;min-width:46px;text-align:center;padding:1px 6px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid currentColor}
-        .chart{width:100%;height:auto;background:var(--bg);border-radius:6px;border:1px solid var(--bd);margin:6px 0;}
-        .ob.c{fill:var(--dn);opacity:0.8;} .ob.p{fill:var(--up);opacity:0.8;}
-        .foot{text-align:center;margin-top:20px;font-size:11px}
-        #login-container{position:fixed;top:0;left:0;width:100vw;height:100vh;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
-        .login-card{background:var(--card);padding:24px;border-radius:10px;border:1px solid var(--bd);width:100%;max-width:360px;box-shadow:0 10px 25px rgba(0,0,0,0.08)}
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paslin &amp; Nifty/Sensex Algo Trading Portal</title>
+<style>
+:root{--bg:#f8fafc;--fg:#0f172a;--mut:#64748b;--card:#fff;--bd:#e2e8f0;--up:#16845b;--dn:#c43a3a;--mid:#8a6d1d;--px:#2b3a55;--cpr:rgba(59,130,246,.12);--accent:#0284c7;--accent-hover:#0369a1}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:13px -apple-system,BlinkMacSystemFont,sans-serif;background:var(--bg);color:var(--fg);padding:12px;max-width:1480px;margin:auto}
+header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+h2{margin:2px 0}h3{margin:0}h4{margin:8px 0 4px;font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.clock,.sub,.muted,small,.foot{color:var(--mut);font-size:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px;margin:10px 0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.hd{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px}
+.big{font-size:19px;margin:0 4px;font-weight:700}
+.badge{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;border:1px solid currentColor}
+.badge.up,.upt{color:var(--up)}.badge.dn,.dnt{color:var(--dn)}.badge.mid,.midt{color:var(--mid)}
+.stats{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.stats div{flex:1;min-width:70px;background:var(--bg);border-radius:6px;padding:5px 7px}
+.stats small{display:block;font-size:10px}.stats b{font-size:14px}
+nav.tabs{display:flex;gap:6px;margin:8px 0 12px;flex-wrap:wrap}
+nav.tabs button{padding:6px 16px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--fg);font-size:13px;font-weight:600;cursor:pointer}
+nav.tabs button:hover{background:var(--cpr)}
+nav.tabs button.active{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tab-content{display:none}.tab-content.active{display:block}
+.dual-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:1100px){.dual-grid{grid-template-columns:1fr}}
+table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid var(--bd);padding:4px 6px;font-size:12px;text-align:left}
+form.f{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+form.f label{font-size:11px;color:var(--mut);display:flex;flex-direction:column;gap:3px;flex:1;min-width:160px}
+input,select{font:inherit;padding:7px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--fg);width:100%}
+button.btn{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:bold}
+button.btn:hover{background:var(--accent-hover)}
+.vote{display:inline-block;min-width:46px;text-align:center;padding:1px 6px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid currentColor}
+.chart{width:100%;height:auto;background:var(--bg);border-radius:6px;border:1px solid var(--bd);margin:6px 0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--bd);font-size:12px}
+.row:last-child{border-bottom:0}
+.row .l{display:flex;flex-direction:column}
+.foot{text-align:center;margin-top:20px;font-size:11px}
+#login-container{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
+.login-card{background:var(--card);padding:24px;border-radius:10px;border:1px solid var(--bd);width:100%;max-width:360px;box-shadow:0 10px 25px rgba(0,0,0,.08)}
+</style>
 </head>
 <body>
 
-    <!-- Login Screen Overlay -->
-    <div id="login-container">
-        <div class="login-card">
-            <h2 style="margin-bottom: 16px; color: var(--accent);">Paslin Portal Login</h2>
-            <div style="margin-bottom: 12px;">
-                <label style="font-size: 12px; color: var(--mut); display: block; margin-bottom: 4px;">Username</label>
-                <input type="text" id="login-user" value="admin">
-            </div>
-            <div style="margin-bottom: 16px;">
-                <label style="font-size: 12px; color: var(--mut); display: block; margin-bottom: 4px;">Password</label>
-                <input type="password" id="login-pass" value="nifty2026">
-            </div>
-            <button class="btn" style="width:100%;" onclick="handleLogin()">Login to Dashboard</button>
-            <p id="login-err" style="color: var(--dn); font-size: 12px; margin-top: 8px; text-align: center; display: none;">Invalid credentials. Please try again.</p>
-        </div>
+<div id="login-container">
+  <div class="login-card">
+    <h2 style="margin-bottom:16px;color:var(--accent)">Paslin Portal Login</h2>
+    <div style="margin-bottom:12px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">Username</label><input type="text" id="login-user"></div>
+    <div style="margin-bottom:16px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">Password</label><input type="password" id="login-pass"></div>
+    <button class="btn" style="width:100%" onclick="handleLogin()">Login to Dashboard</button>
+    <p id="login-err" style="color:var(--dn);font-size:12px;margin-top:8px;text-align:center;display:none">Invalid credentials. Please try again.</p>
+  </div>
+</div>
+
+<div id="portal-container" style="display:none">
+  <header>
+    <h2>Paslin &amp; Nifty/Sensex Dashboard</h2>
+    <span class="clock" id="live-clock"></span>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="dashboard">Live</button>
+    <button class="tab-btn" data-tab="xray">X-Ray Backtest</button>
+    <button class="tab-btn" data-tab="history">Journal</button>
+    <button class="tab-btn" data-tab="settings">Settings</button>
+    <button class="tab-btn" onclick="handleLogout()" style="color:var(--dn);margin-left:auto">Logout</button>
+  </nav>
+
+  <div id="tab-dashboard" class="tab-content active">
+    <p class="sub" id="asof" style="margin-bottom:4px"></p>
+    <div class="dual-grid" id="live-grid"><p class="sub">Loading…</p></div>
+  </div>
+
+  <div id="tab-xray" class="tab-content">
+    <div class="card">
+      <h3>X-Ray &amp; Backtest Simulation</h3>
+      <form class="f" style="margin:12px 0" onsubmit="runBacktest(event)">
+        <label>Instrument <select id="bt-inst"><option>NIFTY</option><option>SENSEX</option></select></label>
+        <label>Lot Size <input type="number" id="bt-lots" value="25"></label>
+        <label>Order Block Max Age <input type="number" id="bt-maxage" value="25"></label>
+        <button class="btn" style="margin-top:auto">Run Simulation</button>
+      </form>
+    </div>
+    <div id="backtest-results" class="card" style="display:none">
+      <h4>Simulation Results</h4>
+      <div class="stats" style="margin-top:10px">
+        <div><small>Total Trades</small><b id="res-trades"></b></div>
+        <div><small>Win Rate</small><b class="upt" id="res-win"></b></div>
+        <div><small>Profit Factor</small><b id="res-pf"></b></div>
+        <div><small>Max Drawdown</small><b class="dnt" id="res-dd"></b></div>
+        <div><small>Net PnL</small><b class="upt" id="res-pnl"></b></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-history" class="tab-content">
+    <div class="card">
+      <h3>Trade Journal &amp; History</h3>
+      <table style="margin-top:10px" id="journal"><tr><th>Time</th><th>Symbol</th><th>Type</th><th>Price</th><th>PnL</th><th>Status</th></tr></table>
+    </div>
+  </div>
+
+  <div id="tab-settings" class="tab-content">
+    <div class="card">
+      <h3>Portal &amp; Broker Settings</h3>
+      <form class="f" style="margin-top:12px" onsubmit="saveSettings(event)">
+        <label>Upstox Access Token <input type="password" id="set-token" placeholder="Paste today's token"></label>
+        <label>Default Symbol <select id="set-sym"><option>NIFTY</option><option>SENSEX</option></select></label>
+        <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3"></label>
+        <button class="btn" style="margin-top:auto">Save Settings</button>
+      </form>
+    </div>
+  </div>
+
+  <p class="foot">Paslin Algorithmic Trading Portal &middot; Read-only telemetry and automated execution engine.</p>
+</div>
+
+<script>
+const fmt = n => Number(n).toLocaleString('en-IN', {maximumFractionDigits: 2});
+const cls = n => n < 0 ? 'dnt' : 'upt';
+const voteCls = v => v === 'BULL' ? 'upt' : v === 'BEAR' ? 'dnt' : 'midt';
+
+// ---------- Tabs ----------
+document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListener('click', () => {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  btn.classList.add('active');
+  if (btn.dataset.tab === 'history') loadJournal();
+}));
+
+// ---------- Auth (server-verified) ----------
+async function handleLogin() {
+  const username = document.getElementById('login-user').value.trim();
+  const password = document.getElementById('login-pass').value.trim();
+  const err = document.getElementById('login-err');
+  err.style.display = 'none';
+  try {
+    const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password})});
+    if (!r.ok) throw new Error('bad');
+    document.getElementById('login-container').style.display = 'none';
+    document.getElementById('portal-container').style.display = 'block';
+    loadLive();
+  } catch (e) { err.style.display = 'block'; }
+}
+function handleLogout() {
+  document.getElementById('portal-container').style.display = 'none';
+  document.getElementById('login-container').style.display = 'flex';
+}
+document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+
+// ---------- Clock ----------
+function tick() {
+  const d = new Date();
+  const s = d.toLocaleString('en-GB', {timeZone: 'Asia/Kolkata', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false});
+  const ist = new Date(d.toLocaleString('en-US', {timeZone: 'Asia/Kolkata'}));
+  const mins = ist.getHours() * 60 + ist.getMinutes(), wd = ist.getDay();
+  const open = wd >= 1 && wd <= 5 && mins >= 555 && mins <= 930;
+  document.getElementById('live-clock').innerHTML = `${s} IST &middot; <b class="${open ? 'upt' : 'dnt'}">${open ? 'MARKET OPEN' : 'MARKET CLOSED'}</b>`;
+}
+setInterval(tick, 1000); tick();
+
+// ---------- Live dashboard rendering ----------
+function levelsChart(d) {
+  const vals = d.levels.map(l => l.v).concat(d.price);
+  const hi = Math.max(...vals), lo = Math.min(...vals), pad = (hi - lo) * 0.08;
+  const y = v => 15 + (1 - (v - (lo - pad)) / ((hi + pad) - (lo - pad))) * 210;
+  let s = '';
+  d.levels.forEach(l => {
+    const sup = /^S|Low/.test(l.name), cpr = /CPR|Pivot/.test(l.name);
+    const c = cpr ? 'var(--px)' : sup ? 'var(--up)' : 'var(--dn)';
+    s += `<line x1="30" y1="${y(l.v)}" x2="400" y2="${y(l.v)}" stroke="${c}" stroke-dasharray="${cpr ? 2 : 4}"/><text x="405" y="${y(l.v) + 3}" font-size="9" fill="${c}">${l.name} ${fmt(l.v)}</text>`;
+  });
+  s += `<line x1="30" y1="${y(d.price)}" x2="400" y2="${y(d.price)}" stroke="var(--fg)" stroke-width="1.5"/><text x="30" y="${y(d.price) - 4}" font-size="10" font-weight="700">LTP ${fmt(d.price)}</text>`;
+  return `<svg viewBox="0 0 500 240" class="chart">${s}</svg>`;
+}
+
+function oiChart(ladder) {
+  const mx = Math.max(...ladder.flatMap(r => [r.call, r.put]));
+  let s = '';
+  ladder.forEach((r, i) => {
+    const x = 30 + i * 70, hc = r.call / mx * 75, hp = r.put / mx * 75;
+    s += `<rect x="${x}" y="${85 - hc}" width="14" height="${hc}" fill="var(--dn)" opacity=".8"/><rect x="${x + 16}" y="${85 - hp}" width="14" height="${hp}" fill="var(--up)" opacity=".8"/><text x="${x + 15}" y="100" font-size="9" text-anchor="middle">${r.strike}</text>`;
+  });
+  return `<svg viewBox="0 0 460 110" class="chart">${s}</svg>`;
+}
+
+function renderInstrument(d) {
+  const sw = d.sideways, swCls = sw.score >= 4 ? 'up' : 'mid';
+  return `<div>
+    <div class="card">
+      <div class="hd"><h3>${d.key} <span class="big">${fmt(d.price)}</span> <span class="${cls(d.change)}">${d.change > 0 ? '+' : ''}${d.change} (${d.changePct}%)</span></h3>
+        <span class="badge ${d.composite.score < 0 ? 'dn' : d.composite.score > 0 ? 'up' : 'mid'}">${d.bias}</span></div>
+      <div class="stats">
+        <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : 'dnt'}">${d.supertrend}</b></div>
+        <div><small>HMA slope</small><b class="${d.hmaSlope === 'UP' ? 'upt' : 'dnt'}">${d.hmaSlope}</b></div>
+        <div><small>ADX</small><b>${d.adx}</b></div>
+        <div><small>ATR</small><b>${d.atr}</b></div>
+        <div><small>Paper pts (replay)</small><b class="${cls(d.paperPts)}">${d.paperPts}</b></div>
+      </div>
     </div>
 
-    <!-- Main Portal Container -->
-    <div id="portal-container" style="display: none;">
-        <header>
-            <h2>Paslin &amp; Nifty/Sensex Dashboard</h2>
-            <span class="clock" id="live-clock">Fri 13 Nov 2026 22:54:52 IST &middot; <b class="upt">MARKET OPEN</b></span>
-        </header>
+    <div class="card"><h4>Sideways-day check${d.key === 'SENSEX' ? ' (Sensex)' : ''} <span class="badge ${swCls}">${sw.score >= 4 ? 'SIDEWAYS' : 'TRENDING / MIXED'} (${sw.score}/${sw.total})</span></h4>
+      <ul style="padding-left:14px;font-size:11px;line-height:1.5">${sw.checks.map(c => `<li><b class="${c.pass ? 'upt' : 'dnt'}">${c.pass ? 'PASS' : 'FAIL'}</b> ${c.name} <small>- ${c.note}</small></li>`).join('')}</ul></div>
 
-        <nav class="tabs">
-            <button class="tab-btn active" onclick="switchTab('dashboard')">Live</button>
-            <button class="tab-btn" onclick="switchTab('xray')">X-Ray Backtest</button>
-            <button class="tab-btn" onclick="switchTab('history')">Journal</button>
-            <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
-            <button class="tab-btn" onclick="handleLogout()" style="color: var(--dn); margin-left: auto;">Logout</button>
-        </nav>
+    <div class="card"><h4>Option chain (OI / PCR) - ${d.key}</h4>
+      <div class="stats">
+        <div><small>PCR near ATM</small><b>${d.chain.pcrAtm}</b></div><div><small>PCR total</small><b>${d.chain.pcrTotal}</b></div>
+        <div><small>Put Wall</small><b class="upt">${fmt(d.chain.putWall)}</b></div><div><small>Call Wall</small><b class="dnt">${fmt(d.chain.callWall)}</b></div>
+        <div><small>Max Pain</small><b>${fmt(d.chain.maxPain)}</b></div>
+      </div>
+      ${oiChart(d.chain.ladder)}
+      <p class="sub" style="text-align:center;font-size:10px"><span style="display:inline-block;width:8px;height:8px;background:var(--dn)"></span> Calls &nbsp; <span style="display:inline-block;width:8px;height:8px;background:var(--up)"></span> Puts (expiry ${d.chain.expiry})</p></div>
 
-        <!-- TAB: DASHBOARD (DUAL SIDE-BY-SIDE NIFTY & SENSEX LAYOUT) -->
-        <div id="tab-dashboard" class="tab-content active">
-            <div class="dual-grid">
-                
-                <!-- ================= LEFT COLUMN: NIFTY ================= -->
-                <div>
-                    <!-- Header Card -->
-                    <div class="card">
-                        <div class="hd">
-                            <h3>NIFTY <span class="big">25,144.30</span> <span class="dnt">-155.0 (-0.61%)</span></h3>
-                            <span class="badge dn">BEARISH - SELL CE / BUY PE</span>
-                        </div>
-                        <p class="sub" style="margin-top:3px;">15-min bar: Fri 13 Nov 15:15 IST (close 25,144.30) &middot; market closed</p>
-                        <div class="stats">
-                            <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
-                            <div><small>HMA slope</small><b class="upt">UP</b></div>
-                            <div><small>ADX</small><b>28</b></div>
-                            <div><small>ATR</small><b>34.8</b></div>
-                            <div><small>Paper Pts</small><b class="dnt">-30</b></div>
-                        </div>
-                    </div>
+    <div class="card"><h4>Option-seller conditions (advisory)</h4>
+      <div class="row"><div class="l"><b>Gamma (GEX)</b><small>${d.seller.gamma.label}: ${d.seller.gamma.note}</small></div><b class="${d.seller.gamma.good ? 'upt' : 'dnt'}">${d.seller.gamma.good ? 'GOOD' : 'CAUTION'}</b></div>
+      <div class="row"><div class="l"><b>IV rank (VIX)</b><small>${d.seller.iv.label} is ${d.seller.iv.note}</small></div><b class="${d.seller.iv.good ? 'upt' : 'dnt'}">${d.seller.iv.good ? 'GOOD' : 'CAUTION'}</b></div></div>
 
-                    <!-- Sideways-Day Check -->
-                    <div class="card">
-                        <h4>Sideways-day check <span class="badge mid">TRENDING / MIXED (0/6)</span></h4>
-                        <ul style="padding-left:14px; font-size:11px; line-height:1.4;">
-                            <li><b class="dnt">FAIL</b> Wide CPR <small>- width 0.09% vs 20-day median 0.30%</small></li>
-                            <li><b class="dnt">FAIL</b> Weak trend <small>- ADX 28</small></li>
-                            <li><b class="dnt">FAIL</b> Price between S1 &amp; R1 <small>- 25,144 OUTSIDE 25,167 - 25,408</small></li>
-                            <li><b class="dnt">FAIL</b> No big gap at open <small>- gap 0.35%</small></li>
-                            <li><b class="dnt">FAIL</b> HMA flat <small>- moved 16 pts in 4 bars</small></li>
-                            <li><b class="dnt">FAIL</b> Small range so far <small>- today 192 pts vs yesterday 242</small></li>
-                        </ul>
-                    </div>
+    <div class="card"><h4>Agents (vote on direction)</h4>
+      ${d.agents.map(a => `<div class="row"><div class="l"><b>${a.name}</b><small>${a.note}</small></div><span class="vote ${voteCls(a.vote)}">${a.vote}</span></div>`).join('')}
+      <div class="row"><div class="l"><b>Composite</b><small>${d.composite.score > 0 ? '+' : ''}${d.composite.score} &rarr; ${d.composite.text}</small></div></div></div>
 
-                    <!-- Multi-Day Price & Camarilla/CPR Levels Chart -->
-                    <div class="card">
-                        <h4>Price, Supertrend, HMA(21) &amp; Levels (Nifty)</h4>
-                        <svg viewBox="0 0 500 240" class="chart" role="img" aria-label="nifty chart">
-                            <!-- Shaded CPR Band -->
-                            <rect x="30" y="85" width="400" height="20" fill="var(--cpr)"/>
-                            <!-- Level Lines -->
-                            <line x1="30" y1="30" x2="430" y2="30" stroke="var(--dn)" stroke-dasharray="4"/><text x="435" y="33" fill="var(--dn)" font-size="9">R2 25518</text>
-                            <line x1="30" y1="55" x2="430" y2="55" stroke="var(--dn)" stroke-dasharray="4"/><text x="435" y="58" fill="var(--dn)" font-size="9">R1 25408</text>
-                            <line x1="30" y1="90" x2="430" y2="90" stroke="var(--px)" stroke-dasharray="2"/><text x="435" y="93" fill="var(--px)" font-size="9">CPR top 25288</text>
-                            <line x1="30" y1="105" x2="430" y2="105" stroke="var(--px)" stroke-dasharray="2"/><text x="435" y="108" fill="var(--px)" font-size="9">CPR bot 25264</text>
-                            <line x1="30" y1="150" x2="430" y2="150" stroke="var(--up)" stroke-dasharray="4"/><text x="435" y="153" fill="var(--up)" font-size="9">S1 25167</text>
-                            <line x1="30" y1="170" x2="430" y2="170" stroke="var(--up)" stroke-dasharray="2"/><text x="435" y="173" fill="var(--up)" font-size="9">Prev low 25143</text>
-                            <!-- Candlesticks (3 days) -->
-                            <g stroke="var(--fg)" stroke-width="1.2">
-                                <line x1="70" y1="45" x2="70" y2="115"/><rect x="65" y="60" width="10" height="40" fill="var(--up)"/>
-                                <line x1="120" y1="60" x2="120" y2="140"/><rect x="115" y="80" width="10" height="45" fill="var(--dn)"/>
-                                <line x1="170" y1="75" x2="170" y2="155"/><rect x="165" y="95" width="10" height="35" fill="var(--dn)"/>
-                                <line x1="220" y1="100" x2="220" y2="180"/><rect x="215" y="120" width="10" height="30" fill="var(--up)"/>
-                                <line x1="270" y1="110" x2="270" y2="185"/><rect x="265" y="130" width="10" height="40" fill="var(--dn)"/>
-                                <line x1="320" y1="130" x2="320" y2="200"/><rect x="315" y="150" width="10" height="35" fill="var(--dn)"/>
-                            </g>
-                            <!-- HMA & Supertrend Curve -->
-                            <path d="M 60 80 Q 150 60 240 145 T 410 160" fill="none" stroke="var(--hma)" stroke-width="2"/>
-                            <polygon points="265,120 260,110 270,110" fill="var(--dn)" /><text x="275" y="115" font-size="8" fill="var(--dn)">SELL CE</text>
-                            <polygon points="120,145 115,155 125,155" fill="var(--up)" /><text x="130" y="153" font-size="8" fill="var(--up)">SELL PE</text>
-                            <text x="35" y="230" font-size="9" fill="var(--mut)">Wed 11 Nov &nbsp; &middot; &nbsp; Thu 12 Nov &nbsp; &middot; &nbsp; Fri 13 Nov</text>
-                        </svg>
-                        <p class="sub" style="font-size:10px; margin-top:2px;">red dashed = resistance, green dashed = support, amber dotted = prev high/low, shaded = CPR band, HMA(21)</p>
-                    </div>
+    <div class="card"><h4>Levels vs price (${d.key})</h4>
+      ${levelsChart(d)}
+      <table>${d.levels.map(l => { const diff = Math.round(l.v - d.price); return `<tr><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${cls(diff)}">${diff > 0 ? '+' : ''}${diff}</td></tr>`; }).join('')}</table></div>
 
-                    <!-- Option Chain & OI Ladder -->
-                    <div class="card">
-                        <h4>Option chain (OI / PCR) - Nifty</h4>
-                        <div class="stats">
-                            <div><small>PCR ATM</small><b>0.82</b></div>
-                            <div><small>PCR Total</small><b>0.83</b></div>
-                            <div><small>Put Wall</small><b class="upt">25,000</b></div>
-                            <div><small>Call Wall</small><b class="dnt">25,500</b></div>
-                            <div><small>Max Pain</small><b>25,100</b></div>
-                        </div>
-                        <svg viewBox="0 0 460 110" class="chart" role="img" aria-label="nifty oi ladder">
-                            <g>
-                                <rect class="ob c" x="30" y="25" width="14" height="60"/><rect class="ob p" x="46" y="15" width="14" height="70"/>
-                                <rect class="ob c" x="90" y="20" width="14" height="65"/><rect class="ob p" x="106" y="40" width="14" height="45"/>
-                                <rect class="ob c" x="150" y="10" width="14" height="75"/><rect class="ob p" x="166" y="55" width="14" height="30"/>
-                                <rect class="ob c" x="210" y="8" width="14" height="77"/><rect class="ob p" x="226" y="65" width="14" height="20"/>
-                                <rect class="ob c" x="270" y="5" width="14" height="80"/><rect class="ob p" x="286" y="75" width="14" height="10"/>
-                                <rect class="ob c" x="330" y="2" width="14" height="83"/><rect class="ob p" x="346" y="80" width="14" height="5"/>
-                            </g>
-                            <text x="38" y="98" font-size="9" text-anchor="middle">24850</text>
-                            <text x="98" y="98" font-size="9" text-anchor="middle">24950</text>
-                            <text x="158" y="98" font-size="9" text-anchor="middle">25050</text>
-                            <text x="218" y="98" font-size="9" text-anchor="middle">25150</text>
-                            <text x="278" y="98" font-size="9" text-anchor="middle">25250</text>
-                            <text x="338" y="98" font-size="9" text-anchor="middle">25350</text>
-                        </svg>
-                        <p class="sub" style="text-align:center; font-size:10px;"><span style="display:inline-block;width:8px;height:8px;background:var(--dn)"></span> Calls &nbsp; <span style="display:inline-block;width:8px;height:8px;background:var(--up)"></span> Puts (expiry 2026-11-17)</p>
-                    </div>
+    <div class="card"><h4>Why no signal right now?</h4>
+      <p style="font-size:11px;margin-bottom:4px"><b class="dnt">PE side:</b> ${d.why.pe}</p>
+      <p style="font-size:11px"><b class="dnt">CE side:</b> ${d.why.ce}</p>
+      <h4 style="margin-top:10px">Latest signals (replay)</h4>
+      <table><tr><th>Time</th><th>Setup</th><th>Type</th><th>Ref</th><th>SL</th><th>TP1</th></tr>
+      ${d.signals.map(s => `<tr><td>${s.time}</td><td>${s.setup}</td><td class="${/PE/.test(s.type) ? 'upt' : 'dnt'}">${s.type}</td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td></tr>`).join('')}</table></div>
+  </div>`;
+}
 
-                    <!-- Why No Signal & Latest Signals -->
-                    <div class="card">
-                        <h4>Why no signal right now?</h4>
-                        <p style="font-size:11px; margin-bottom:4px;"><b class="dnt">PE side:</b> price on wrong side of CPR; Supertrend points other way; 1-hour trend against it.</p>
-                        <p style="font-size:11px;"><b class="dnt">CE side:</b> price on wrong side of HMA; too close to support/resistance; 1-hour trend against it.</p>
-                        <h4 style="margin-top:10px;">Latest signals (replay)</h4>
-                        <table>
-                            <tr><th>Time</th><th>Setup</th><th>Type</th><th>Ref</th><th>SL</th><th>TP1</th></tr>
-                            <tr><td>13 Nov 12:30</td><td>OB/FVG</td><td><span class="dnt">SELL CE</span></td><td>25110</td><td>25200</td><td>25019</td></tr>
-                        </table>
-                    </div>
-                </div>
+async function loadLive() {
+  try {
+    const m = await (await fetch('/api/market')).json();
+    document.getElementById('asof').textContent = 'Signals and indicators use the last completed ' + m.asOf + (m.marketOpen ? '' : ' · market closed');
+    document.getElementById('live-grid').innerHTML = m.instruments.map(renderInstrument).join('');
+  } catch (e) {
+    document.getElementById('live-grid').innerHTML = '<p class="dnt">Could not load market data.</p>';
+  }
+}
+setInterval(() => { if (document.getElementById('tab-dashboard').classList.contains('active') && document.getElementById('portal-container').style.display === 'block') loadLive(); }, 60000);
 
-                <!-- ================= RIGHT COLUMN: SENSEX ================= -->
-                <div>
-                    <!-- Header Card -->
-                    <div class="card">
-                        <div class="hd">
-                            <h3>SENSEX <span class="big">81,592.45</span> <span class="dnt">-318.6 (-0.39%)</span></h3>
-                            <span class="badge dn">BEARISH - SELL CE / BUY PE</span>
-                        </div>
-                        <p class="sub" style="margin-top:3px;">15-min bar: Fri 13 Nov 15:15 IST (close 81,592.45) &middot; market closed</p>
-                        <div class="stats">
-                            <div><small>Supertrend</small><b class="dnt">DOWN</b></div>
-                            <div><small>HMA slope</small><b class="upt">UP</b></div>
-                            <div><small>ADX</small><b>27</b></div>
-                            <div><small>ATR</small><b>107.1</b></div>
-                            <div><small>Paper Pts</small><b class="dnt">-112</b></div>
-                        </div>
-                    </div>
+// ---------- Other tabs ----------
+async function runBacktest(e) {
+  e.preventDefault();
+  const body = {instrument: document.getElementById('bt-inst').value, lotSize: +document.getElementById('bt-lots').value, obMaxAge: +document.getElementById('bt-maxage').value};
+  const {results: r} = await (await fetch('/api/backtest', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})).json();
+  res_trades.textContent = r.totalTrades; res_win.textContent = r.winRate; res_pf.textContent = r.profitFactor; res_dd.textContent = r.maxDrawdown; res_pnl.textContent = r.netPnL;
+  document.getElementById('backtest-results').style.display = 'block';
+}
 
-                    <!-- Sideways-Day Check -->
-                    <div class="card">
-                        <h4>Sideways-day check (Sensex) <span class="badge mid">TRENDING / MIXED (2/6)</span></h4>
-                        <ul style="padding-left:14px; font-size:11px; line-height:1.4;">
-                            <li><b class="dnt">FAIL</b> Wide CPR <small>- width 0.03% vs median 0.29%</small></li>
-                            <li><b class="dnt">FAIL</b> Weak trend <small>- ADX 27</small></li>
-                            <li><b class="upt">PASS</b> Price between S1 &amp; R1 <small>- 81,592 inside 81,550 - 82,299</small></li>
-                            <li><b class="upt">PASS</b> No big gap at open <small>- gap 0.09%</small></li>
-                            <li><b class="dnt">FAIL</b> HMA flat <small>- moved 74 pts in 4 bars</small></li>
-                            <li><b class="dnt">FAIL</b> Small range so far <small>- 591 pts vs yesterday 749</small></li>
-                        </ul>
-                    </div>
+async function loadJournal() {
+  const {tradeHistory} = await (await fetch('/api/dashboard')).json();
+  document.getElementById('journal').innerHTML = '<tr><th>Time</th><th>Symbol</th><th>Type</th><th>Price</th><th>PnL</th><th>Status</th></tr>' +
+    tradeHistory.map(t => `<tr><td>${t.time}</td><td>${t.symbol}</td><td class="${t.type === 'BUY' ? 'upt' : 'dnt'}">${t.type}</td><td>${fmt(t.price)}</td><td class="${cls(t.pnl)}">${t.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(t.pnl))}</td><td>${t.status}</td></tr>`).join('');
+}
 
-                    <!-- Multi-Day Price & Camarilla/CPR Levels Chart -->
-                    <div class="card">
-                        <h4>Price, Supertrend, HMA(21) &amp; Levels (Sensex)</h4>
-                        <svg viewBox="0 0 500 240" class="chart" role="img" aria-label="sensex chart">
-                            <!-- Shaded CPR Band -->
-                            <rect x="30" y="85" width="400" height="20" fill="var(--cpr)"/>
-                            <!-- Level Lines -->
-                            <line x1="30" y1="30" x2="430" y2="30" stroke="var(--dn)" stroke-dasharray="4"/><text x="435" y="33" fill="var(--dn)" font-size="9">R2 82687</text>
-                            <line x1="30" y1="55" x2="430" y2="55" stroke="var(--dn)" stroke-dasharray="4"/><text x="435" y="58" fill="var(--dn)" font-size="9">R1 82299</text>
-                            <line x1="30" y1="90" x2="430" y2="90" stroke="var(--px)" stroke-dasharray="2"/><text x="435" y="93" fill="var(--px)" font-size="9">CPR top 81951</text>
-                            <line x1="30" y1="105" x2="430" y2="105" stroke="var(--px)" stroke-dasharray="2"/><text x="435" y="108" fill="var(--px)" font-size="9">CPR bot 81924</text>
-                            <line x1="30" y1="150" x2="430" y2="150" stroke="var(--up)" stroke-dasharray="4"/><text x="435" y="153" fill="var(--up)" font-size="9">S1 81550</text>
-                            <line x1="30" y1="170" x2="430" y2="170" stroke="var(--up)" stroke-dasharray="2"/><text x="435" y="173" fill="var(--up)" font-size="9">Prev low 81576</text>
-                            <!-- Candlesticks (3 days) -->
-                            <g stroke="var(--fg)" stroke-width="1.2">
-                                <line x1="70" y1="50" x2="70" y2="120"/><rect x="65" y="70" width="10" height="35" fill="var(--up)"/>
-                                <line x1="120" y1="40" x2="120" y2="115"/><rect x="115" y="60" width="10" height="35" fill="var(--dn)"/>
-                                <line x1="170" y1="70" x2="170" y2="145"/><rect x="165" y="85" width="10" height="40" fill="var(--dn)"/>
-                                <line x1="220" y1="90" x2="220" y2="165"/><rect x="215" y="105" width="10" height="35" fill="var(--up)"/>
-                                <line x1="270" y1="80" x2="270" y2="155"/><rect x="265" y="95" width="10" height="38" fill="var(--dn)"/>
-                            </g>
-                            <!-- HMA & Supertrend Curve -->
-                            <path d="M 60 85 Q 150 65 240 135 T 410 125" fill="none" stroke="var(--hma)" stroke-width="2"/>
-                            <polygon points="215,105 210,95 220,95" fill="var(--dn)" /><text x="225" y="100" font-size="8" fill="var(--dn)">SELL CE</text>
-                            <polygon points="120,115 115,125 125,125" fill="var(--up)" /><text x="130" y="123" font-size="8" fill="var(--up)">SELL PE</text>
-                            <text x="35" y="230" font-size="9" fill="var(--mut)">Wed 11 Nov &nbsp; &middot; &nbsp; Thu 12 Nov &nbsp; &middot; &nbsp; Fri 13 Nov</text>
-                        </svg>
-                        <p class="sub" style="font-size:10px; margin-top:2px;">red dashed = resistance, green dashed = support, amber dotted = prev high/low, shaded = CPR band, HMA(21)</p>
-                    </div>
-
-                    <!-- Option Chain & OI Ladder -->
-                    <div class="card">
-                        <h4>Option chain (OI / PCR) - Sensex</h4>
-                        <div class="stats">
-                            <div><small>PCR ATM</small><b>0.83</b></div>
-                            <div><small>PCR Total</small><b>0.91</b></div>
-                            <div><small>Put Wall</small><b class="upt">81,500</b></div>
-                            <div><small>Call Wall</small><b class="dnt">81,500</b></div>
-                            <div><small>Max Pain</small><b>81,500</b></div>
-                        </div>
-                        <svg viewBox="0 0 460 110" class="chart" role="img" aria-label="sensex oi ladder">
-                            <g>
-                                <rect class="ob c" x="30" y="30" width="14" height="55"/><rect class="ob p" x="46" y="18" width="14" height="68"/>
-                                <rect class="ob c" x="90" y="25" width="14" height="60"/><rect class="ob p" x="106" y="45" width="14" height="40"/>
-                                <rect class="ob c" x="150" y="15" width="14" height="70"/><rect class="ob p" x="166" y="60" width="14" height="25"/>
-                                <rect class="ob c" x="210" y="10" width="14" height="75"/><rect class="ob p" x="226" y="70" width="14" height="15"/>
-                                <rect class="ob c" x="270" y="6" width="14" height="79"/><rect class="ob p" x="286" y="78" width="14" height="8"/>
-                                <rect class="ob c" x="330" y="4" width="14" height="81"/><rect class="ob p" x="346" y="82" width="14" height="4"/>
-                            </g>
-                            <text x="38" y="98" font-size="9" text-anchor="middle">80600</text>
-                            <text x="98" y="98" font-size="9" text-anchor="middle">81000</text>
-                            <text x="158" y="98" font-size="9" text-anchor="middle">81400</text>
-                            <text x="218" y="98" font-size="9" text-anchor="middle">81600</text>
-                            <text x="278" y="98" font-size="9" text-anchor="middle">81800</text>
-                            <text x="338" y="98" font-size="9" text-anchor="middle">82200</text>
-                        </svg>
-                        <p class="sub" style="text-align:center; font-size:10px;"><span style="display:inline-block;width:8px;height:8px;background:var(--dn)"></span> Calls &nbsp; <span style="display:inline-block;width:8px;height:8px;background:var(--up)"></span> Puts (expiry 2026-11-19)</p>
-                    </div>
-
-                    <!-- Why No Signal & Latest Signals -->
-                    <div class="card">
-                        <h4>Why no signal right now?</h4>
-                        <p style="font-size:11px; margin-bottom:4px;"><b class="dnt">PE side:</b> price on wrong side of CPR; Supertrend points other way; 1-hour trend against it.</p>
-                        <p style="font-size:11px;"><b class="dnt">CE side:</b> price on wrong side of HMA; too close to support/resistance; 1-hour trend against it.</p>
-                        <h4 style="margin-top:10px;">Latest signals (replay)</h4>
-                        <table>
-                            <tr><th>Time</th><th>Setup</th><th>Type</th><th>Ref</th><th>SL</th><th>TP1</th></tr>
-                            <tr><td>13 Nov 10:15</td><td>OB/FVG</td><td><span class="dnt">SELL CE</span></td><td>81703</td><td>82046</td><td>81361</td></tr>
-                            <tr><td>11 Nov 10:15</td><td>OB/FVG</td><td><span class="upt">SELL PE</span></td><td>82298</td><td>81921</td><td>82674</td></tr>
-                        </table>
-                    </div>
-                </div>
-
-            </div>
-        </div>
-
-        <!-- TAB: X-RAY BACKTEST -->
-        <div id="tab-xray" class="tab-content">
-            <div class="card">
-                <h3>X-Ray &amp; Backtest Simulation</h3>
-                <form class="f" style="margin: 12px 0;" onsubmit="runBacktest(event)">
-                    <label>Instrument <select id="bt-inst"><option>NIFTY</option><option>SENSEX</option></select></label>
-                    <label>Lot Size <input type="number" id="bt-lots" value="25"></label>
-                    <label>Order Block Max Age <input type="number" id="bt-maxage" value="25"></label>
-                    <button class="btn" style="margin-top:auto">Run Simulation</button>
-                </form>
-            </div>
-            <div id="backtest-results" class="card" style="display:none;">
-                <h4>Simulation Results</h4>
-                <div class="stats" style="margin-top: 10px;">
-                    <div><small>Total Trades</small><b id="res-trades">142</b></div>
-                    <div><small>Win Rate</small><b class="upt" id="res-win">64.8%</b></div>
-                    <div><small>Profit Factor</small><b id="res-pf">2.14</b></div>
-                    <div><small>Net PnL</small><b class="upt" id="res-pnl">&#8377; 1,24,600</b></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- TAB: JOURNAL -->
-        <div id="tab-history" class="tab-content">
-            <div class="card">
-                <h3>Trade Journal &amp; History</h3>
-                <table style="margin-top: 10px;">
-                    <tr><th>Time</th><th>Symbol</th><th>Type</th><th>Price</th><th>PnL</th><th>Status</th></tr>
-                    <tr><td>2026-11-13 09:30</td><td>NIFTY</td><td><span class="upt">BUY</span></td><td>23,040.50</td><td class="upt">+&#8377; 1,250</td><td>Closed</td></tr>
-                    <tr><td>2026-11-13 11:15</td><td>NIFTY</td><td><span class="dnt">SELL</span></td><td>23,120.00</td><td class="dnt">-&#8377; 450</td><td>Closed</td></tr>
-                </table>
-            </div>
-        </div>
-
-        <!-- TAB: SETTINGS -->
-        <div id="tab-settings" class="tab-content">
-            <div class="card">
-                <h3>Portal &amp; Broker Settings</h3>
-                <form class="f" style="margin-top: 12px;" onsubmit="saveSettings(event)">
-                    <label>Upstox Access Token <input type="password" id="set-token" placeholder="Paste today's token"></label>
-                    <label>Default Symbol <select id="set-sym"><option>NIFTY</option><option>SENSEX</option></select></label>
-                    <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3"></label>
-                    <button class="btn" style="margin-top:auto">Save Settings</button>
-                </form>
-            </div>
-        </div>
-
-        <p class="foot">Paslin Algorithmic Trading Portal &middot; Read-only telemetry and automated execution engine.</p>
-    </div>
-
-    <script>
-        function switchTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-            document.getElementById('tab-' + tabId).classList.add('active');
-            event.target.classList.add('active');
-        }
-
-        function handleLogin() {
-            const username = document.getElementById('login-user').value.trim();
-            const password = document.getElementById('login-pass').value.trim();
-            const errEl = document.getElementById('login-err');
-            errEl.style.display = 'none';
-
-            if (username === 'admin' && password === 'nifty2026') {
-                document.getElementById('login-container').style.display = 'none';
-                document.getElementById('portal-container').style.display = 'block';
-                return;
-            }
-
-            errEl.style.display = 'block';
-        }
-
-        function handleLogout() {
-            document.getElementById('portal-container').style.display = 'none';
-            document.getElementById('login-container').style.display = 'flex';
-        }
-
-        function runBacktest(e) {
-            e.preventDefault();
-            document.getElementById('backtest-results').style.display = 'block';
-        }
-
-        function saveSettings(e) {
-            e.preventDefault();
-            alert('Settings saved successfully!');
-        }
-    </script>
+async function saveSettings(e) {
+  e.preventDefault();
+  const body = {instrument: document.getElementById('set-sym').value, maxTrades: +document.getElementById('set-maxtrades').value};
+  const tok = document.getElementById('set-token').value.trim();
+  if (tok) body.upstoxToken = tok;
+  await fetch('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  alert('Settings saved successfully!');
+}
+</script>
 </body>
 </html>
