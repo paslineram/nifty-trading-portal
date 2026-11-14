@@ -40,6 +40,18 @@ button.btn:hover{background:var(--accent-hover)}
 .foot{text-align:center;margin-top:20px;font-size:11px}
 #login-container{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
 .login-card{background:var(--card);padding:24px;border-radius:10px;border:1px solid var(--bd);width:100%;max-width:360px;box-shadow:0 10px 25px rgba(0,0,0,.08)}
+
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch}
+@media(max-width:900px){.pair{grid-template-columns:1fr}}
+.pair>.card{margin:0}
+.stack{display:flex;flex-direction:column;gap:12px;margin:10px 0}
+.stack>.card{margin:0}
+.pill{display:inline-block;min-width:54px;text-align:center;padding:1px 8px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid currentColor;letter-spacing:.03em}
+table.kv td{padding:6px 6px}
+table.kv td:first-child{white-space:nowrap}
+.seg{display:inline-flex;gap:4px;margin-left:8px}
+.seg button{font:inherit;font-size:11px;padding:2px 10px;border:1px solid var(--bd);border-radius:999px;background:var(--card);color:var(--fg);cursor:pointer}
+.seg button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 </style>
 </head>
 <body>
@@ -69,8 +81,7 @@ button.btn:hover{background:var(--accent-hover)}
   </nav>
 
   <div id="tab-dashboard" class="tab-content active">
-    <p class="sub" id="asof" style="margin-bottom:4px"></p>
-    <div class="dual-grid" id="live-grid"><p class="sub">Loading…</p></div>
+    <div id="live-grid"><p class="sub">Loading…</p></div>
   </div>
 
   <div id="tab-xray" class="tab-content">
@@ -162,84 +173,87 @@ function tick() {
 }
 setInterval(tick, 1000); tick();
 
-// ---------- Live dashboard rendering ----------
-function levelsChart(d) {
-  const vals = d.levels.map(l => l.v).concat(d.price);
-  const hi = Math.max(...vals), lo = Math.min(...vals), pad = (hi - lo) * 0.08;
-  const y = v => 15 + (1 - (v - (lo - pad)) / ((hi + pad) - (lo - pad))) * 210;
-  let s = '';
-  d.levels.forEach(l => {
-    const sup = /^S|Low/.test(l.name), cpr = /CPR|Pivot/.test(l.name);
-    const c = cpr ? 'var(--px)' : sup ? 'var(--up)' : 'var(--dn)';
-    s += `<line x1="30" y1="${y(l.v)}" x2="400" y2="${y(l.v)}" stroke="${c}" stroke-dasharray="${cpr ? 2 : 4}"/><text x="405" y="${y(l.v) + 3}" font-size="9" fill="${c}">${l.name} ${fmt(l.v)}</text>`;
-  });
-  s += `<line x1="30" y1="${y(d.price)}" x2="400" y2="${y(d.price)}" stroke="var(--fg)" stroke-width="1.5"/><text x="30" y="${y(d.price) - 4}" font-size="10" font-weight="700">LTP ${fmt(d.price)}</text>`;
-  return `<svg viewBox="0 0 500 240" class="chart">${s}</svg>`;
+// ---------- Live dashboard rendering (matches PDF layout) ----------
+let MKT = null, DETAIL = 'NIFTY';
+
+function headerCard(d, asOf, open) {
+  return `<div class="card" style="margin:10px 0">
+    <div class="hd"><h3>${d.key} <span class="big">${fmt(d.price)}</span> <span class="${cls(d.change)}">${d.change > 0 ? '+' : ''}${d.change} (${d.changePct}%)</span></h3>
+      <span class="badge ${d.composite.score < 0 ? 'dn' : d.composite.score > 0 ? 'up' : 'mid'}">${d.bias.replace(' / ', '/ ')} side</span></div>
+    <p class="sub" style="margin-top:3px">Signals and indicators use the last completed ${asOf.replace(/^15-min bar: /, '15-min bar: ')} (close ${fmt(d.price)})${open ? '' : ' &middot; market closed'}</p>
+    <div class="stats">
+      <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : 'dnt'}">${d.supertrend}</b></div>
+      <div><small>HMA slope</small><b class="${d.hmaSlope === 'UP' ? 'upt' : 'dnt'}">${d.hmaSlope}</b></div>
+      <div><small>ADX</small><b>${d.adx}</b></div>
+      <div><small>ATR</small><b>${d.atr}</b></div>
+      <div><small>Paper pts (replay)</small><b class="${cls(d.paperPts)}">${d.paperPts}</b></div>
+    </div></div>`;
 }
 
-function oiChart(ladder) {
-  const mx = Math.max(...ladder.flatMap(r => [r.call, r.put]));
-  let s = '';
-  ladder.forEach((r, i) => {
-    const x = 30 + i * 70, hc = r.call / mx * 75, hp = r.put / mx * 75;
-    s += `<rect x="${x}" y="${85 - hc}" width="14" height="${hc}" fill="var(--dn)" opacity=".8"/><rect x="${x + 16}" y="${85 - hp}" width="14" height="${hp}" fill="var(--up)" opacity=".8"/><text x="${x + 15}" y="100" font-size="9" text-anchor="middle">${r.strike}</text>`;
-  });
-  return `<svg viewBox="0 0 460 110" class="chart">${s}</svg>`;
+function sidewaysCard(d) {
+  const sw = d.sideways;
+  return `<div class="card"><h4>Sideways-day check${d.key === 'SENSEX' ? ' (Sensex)' : ''} <span class="badge mid">${sw.score >= 4 ? 'SIDEWAYS' : 'TRENDING / MIXED'} (${sw.score}/${sw.total})</span></h4>
+    <ul style="list-style:none;font-size:11.5px;line-height:1.6">${sw.checks.map(c => `<li><b class="${c.pass ? 'upt' : 'dnt'}">${c.pass ? 'PASS' : 'FAIL'}</b> ${c.name} <small>- ${c.note}</small></li>`).join('')}</ul></div>`;
 }
 
-function renderInstrument(d) {
-  const sw = d.sideways, swCls = sw.score >= 4 ? 'up' : 'mid';
-  return `<div>
-    <div class="card">
-      <div class="hd"><h3>${d.key} <span class="big">${fmt(d.price)}</span> <span class="${cls(d.change)}">${d.change > 0 ? '+' : ''}${d.change} (${d.changePct}%)</span></h3>
-        <span class="badge ${d.composite.score < 0 ? 'dn' : d.composite.score > 0 ? 'up' : 'mid'}">${d.bias}</span></div>
-      <div class="stats">
-        <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : 'dnt'}">${d.supertrend}</b></div>
-        <div><small>HMA slope</small><b class="${d.hmaSlope === 'UP' ? 'upt' : 'dnt'}">${d.hmaSlope}</b></div>
-        <div><small>ADX</small><b>${d.adx}</b></div>
-        <div><small>ATR</small><b>${d.atr}</b></div>
-        <div><small>Paper pts (replay)</small><b class="${cls(d.paperPts)}">${d.paperPts}</b></div>
-      </div>
-    </div>
-
-    <div class="card"><h4>Sideways-day check${d.key === 'SENSEX' ? ' (Sensex)' : ''} <span class="badge ${swCls}">${sw.score >= 4 ? 'SIDEWAYS' : 'TRENDING / MIXED'} (${sw.score}/${sw.total})</span></h4>
-      <ul style="padding-left:14px;font-size:11px;line-height:1.5">${sw.checks.map(c => `<li><b class="${c.pass ? 'upt' : 'dnt'}">${c.pass ? 'PASS' : 'FAIL'}</b> ${c.name} <small>- ${c.note}</small></li>`).join('')}</ul></div>
-
-    <div class="card"><h4>Option chain (OI / PCR) - ${d.key}</h4>
-      <div class="stats">
-        <div><small>PCR near ATM</small><b>${d.chain.pcrAtm}</b></div><div><small>PCR total</small><b>${d.chain.pcrTotal}</b></div>
-        <div><small>Put Wall</small><b class="upt">${fmt(d.chain.putWall)}</b></div><div><small>Call Wall</small><b class="dnt">${fmt(d.chain.callWall)}</b></div>
-        <div><small>Max Pain</small><b>${fmt(d.chain.maxPain)}</b></div>
-      </div>
-      ${oiChart(d.chain.ladder)}
-      <p class="sub" style="text-align:center;font-size:10px"><span style="display:inline-block;width:8px;height:8px;background:var(--dn)"></span> Calls &nbsp; <span style="display:inline-block;width:8px;height:8px;background:var(--up)"></span> Puts (expiry ${d.chain.expiry})</p></div>
-
-    <div class="card"><h4>Option-seller conditions (advisory)</h4>
-      <div class="row"><div class="l"><b>Gamma (GEX)</b><small>${d.seller.gamma.label}: ${d.seller.gamma.note}</small></div><b class="${d.seller.gamma.good ? 'upt' : 'dnt'}">${d.seller.gamma.good ? 'GOOD' : 'CAUTION'}</b></div>
-      <div class="row"><div class="l"><b>IV rank (VIX)</b><small>${d.seller.iv.label} is ${d.seller.iv.note}</small></div><b class="${d.seller.iv.good ? 'upt' : 'dnt'}">${d.seller.iv.good ? 'GOOD' : 'CAUTION'}</b></div></div>
-
-    <div class="card"><h4>Agents (vote on direction)</h4>
-      ${d.agents.map(a => `<div class="row"><div class="l"><b>${a.name}</b><small>${a.note}</small></div><span class="vote ${voteCls(a.vote)}">${a.vote}</span></div>`).join('')}
-      <div class="row"><div class="l"><b>Composite</b><small>${d.composite.score > 0 ? '+' : ''}${d.composite.score} &rarr; ${d.composite.text}</small></div></div></div>
-
-    <div class="card"><h4>Levels vs price (${d.key})</h4>
-      ${levelsChart(d)}
-      <table>${d.levels.map(l => { const diff = Math.round(l.v - d.price); return `<tr><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${cls(diff)}">${diff > 0 ? '+' : ''}${diff}</td></tr>`; }).join('')}</table></div>
-
-    <div class="card"><h4>Why no signal right now?</h4>
-      <p style="font-size:11px;margin-bottom:4px"><b class="dnt">PE side:</b> ${d.why.pe}</p>
-      <p style="font-size:11px"><b class="dnt">CE side:</b> ${d.why.ce}</p>
-      <h4 style="margin-top:10px">Latest signals (replay)</h4>
-      <table><tr><th>Time</th><th>Setup</th><th>Type</th><th>Ref</th><th>SL</th><th>TP1</th></tr>
-      ${d.signals.map(s => `<tr><td>${s.time}</td><td>${s.setup}</td><td class="${/PE/.test(s.type) ? 'upt' : 'dnt'}">${s.type}</td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td></tr>`).join('')}</table></div>
-  </div>`;
+function chainCard(d) {
+  const c = d.chain;
+  return `<div class="card"><h4>Option chain (OI / PCR) - ${d.key}</h4>
+    <div class="stats">
+      <div><small>PCR near ATM</small><b>${c.pcrAtm}</b></div><div><small>PCR total</small><b>${c.pcrTotal}</b></div>
+      <div><small>Put Wall</small><b class="upt">${fmt(c.putWall)}</b></div><div><small>Call Wall</small><b class="dnt">${fmt(c.callWall)}</b></div>
+      <div><small>Max Pain</small><b>${fmt(c.maxPain)}</b></div>
+    </div></div>`;
 }
+
+function sellerCard(d) {
+  const g = d.seller.gamma, v = d.seller.iv;
+  const pill = ok => `<span class="pill ${ok ? 'upt' : 'dnt'}">${ok ? 'GOOD' : 'CAUTION'}</span>`;
+  return `<div class="card"><h4>Option-seller conditions (advisory)</h4>
+    <table class="kv"><tr><td>Gamma (GEX)</td><td>${pill(g.good)}</td><td><small>${g.label}: ${g.note}</small></td></tr>
+    <tr><td>IV rank (VIX)</td><td>${pill(v.good)}</td><td><small>${v.label} is ${v.note}</small></td></tr></table></div>`;
+}
+
+function agentsCard(d) {
+  return `<div class="card"><h4>Agents (vote on direction)</h4>
+    <table class="kv">${d.agents.map(a => `<tr><td>${a.name}</td><td><span class="pill ${voteCls(a.vote)}">${a.vote}</span></td><td><small>${a.note}</small></td></tr>`).join('')}</table>
+    <p style="margin-top:8px;font-size:12px">Composite <b>${d.composite.score > 0 ? '+' : ''}${d.composite.score}</b> &rarr; <span class="badge ${d.composite.score < 0 ? 'dn' : d.composite.score > 0 ? 'up' : 'mid'}">${d.composite.text.toUpperCase()}</span></p></div>`;
+}
+
+function levelsCard(d) {
+  const rows = d.levels.filter(l => l.name !== 'R2' && l.name !== 'CPR bot');
+  return `<div class="card"><h4>Levels vs price (${d.key})</h4>
+    <table class="kv">${rows.map(l => { const diff = Math.round(l.v - d.price); return `<tr><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${diff < 0 ? 'dnt' : 'upt'}">${diff > 0 ? '+' : ''}${diff}</td></tr>`; }).join('')}</table></div>`;
+}
+
+function signalsCard(d) {
+  return `<div class="card"><h4>Why no signal right now? (${d.key})</h4>
+    <p style="font-size:11.5px;margin-bottom:4px"><b class="dnt">PE side:</b> ${d.why.pe}</p>
+    <p style="font-size:11.5px"><b class="dnt">CE side:</b> ${d.why.ce}</p>
+    <h4 style="margin-top:10px">Latest signals (replay)</h4>
+    <table><tr><th>Time</th><th>Setup</th><th>Type</th><th>Ref</th><th>SL</th><th>TP1</th></tr>
+    ${d.signals.map(s => `<tr><td>${s.time}</td><td>${s.setup}</td><td class="${/PE/.test(s.type) ? 'upt' : 'dnt'}">${s.type}</td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td></tr>`).join('')}</table></div>`;
+}
+
+function renderLive() {
+  if (!MKT) return;
+  const [a, b] = MKT.instruments;
+  const d = MKT.instruments.find(i => i.key === DETAIL) || a;
+  const seg = `<span class="seg">${MKT.instruments.map(i => `<button class="${i.key === d.key ? 'on' : ''}" onclick="setDetail('${i.key}')">${i.key}</button>`).join('')}</span>`;
+  document.getElementById('live-grid').innerHTML =
+    headerCard(a, MKT.asOf, MKT.marketOpen) + headerCard(b, MKT.asOf, MKT.marketOpen) +
+    `<div class="pair" style="margin-top:14px">${sidewaysCard(a)}${sidewaysCard(b)}</div>` +
+    `<p class="sub" style="margin:14px 0 0">Detail view: ${seg}</p>` +
+    `<div class="pair" style="margin-top:8px">${chainCard(d)}${sellerCard(d)}</div>` +
+    `<div class="pair" style="margin-top:14px">${agentsCard(d)}${levelsCard(d)}</div>` +
+    `<div style="margin-top:14px">${signalsCard(d)}</div>`;
+}
+function setDetail(k) { DETAIL = k; renderLive(); }
 
 async function loadLive() {
   try {
-    const m = await (await fetch('/api/market')).json();
-    document.getElementById('asof').textContent = 'Signals and indicators use the last completed ' + m.asOf + (m.marketOpen ? '' : ' · market closed');
-    document.getElementById('live-grid').innerHTML = m.instruments.map(renderInstrument).join('');
+    MKT = await (await fetch('/api/market')).json();
+    renderLive();
   } catch (e) {
     document.getElementById('live-grid').innerHTML = '<p class="dnt">Could not load market data.</p>';
   }
