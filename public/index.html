@@ -151,15 +151,21 @@ async function handleLogin() {
   try {
     const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password})});
     if (!r.ok) throw new Error('bad');
-    document.getElementById('login-container').style.display = 'none';
-    document.getElementById('portal-container').style.display = 'block';
-    loadLive();
+    try { localStorage.setItem('paslinAuth', '1'); } catch (_) {}
+    showPortal();
   } catch (e) { err.style.display = 'block'; }
 }
+function showPortal() {
+  document.getElementById('login-container').style.display = 'none';
+  document.getElementById('portal-container').style.display = 'block';
+  loadLive();
+}
 function handleLogout() {
+  try { localStorage.removeItem('paslinAuth'); } catch (_) {}
   document.getElementById('portal-container').style.display = 'none';
   document.getElementById('login-container').style.display = 'flex';
 }
+try { if (localStorage.getItem('paslinAuth') === '1') showPortal(); } catch (_) {}
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 
 // ---------- Clock ----------
