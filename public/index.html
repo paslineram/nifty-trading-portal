@@ -155,7 +155,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Product <select id="upx-ord-product"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
         <label>Order Type <select id="upx-ord-type"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT (LTP)</option></select></label>
         <label>Lots <input type="number" id="upx-ord-lots" value="1" min="1" max="50"></label>
-        <label>AMO (After Market) <select id="upx-ord-amo"><option value="false">No (Regular)</option><option value="true">Yes (AMO)</option></select></label>
+        <label>AMO (After Market) <select id="upx-ord-amo"><option value="true" selected>Yes (AMO &mdash; Active on Market Close)</option><option value="false">No (Regular Market Hours)</option></select></label>
         <button id="upx-ord-send-btn" class="btn" style="margin-top:auto">Send Signal to Upstox</button>
         <button type="button" class="btn" style="margin-top:auto;background:var(--up);border-color:var(--up)" onclick="sendSampleSignalToUpstox(this)">Test Latest Signal</button>
       </form>

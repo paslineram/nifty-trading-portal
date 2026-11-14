@@ -1809,4 +1809,4 @@ function clearMarketCache() {
     cache.clear();
 }
 
-module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal };
+module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, isMarketOpenIST };

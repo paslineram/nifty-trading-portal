@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const { isMarketOpenIST } = require('./upstoxMarket');
+
 const UPSTOX_V2 = 'https://api.upstox.com/v2';
 const UPSTOX_HFT_V3 = 'https://api-hft.upstox.com/v3';
 const UPSTOX_SANDBOX_V3 = 'https://api-sandbox.upstox.com/v3';
@@ -232,7 +234,8 @@ async function executeUpstoxOrderSignal(params, config = {}) {
         const orderType = ['MARKET', 'LIMIT'].includes(String(params.orderType || 'MARKET').toUpperCase())
             ? String(params.orderType || 'MARKET').toUpperCase()
             : 'MARKET';
-        const isAmo = Boolean(params.isAmo);
+        const marketOpen = isMarketOpenIST();
+        const isAmo = Boolean(params.isAmo) || !marketOpen;
         const token = config.upstoxToken || '';
         const sandboxToken = config.upstoxSandboxToken || token;
 
