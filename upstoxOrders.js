@@ -1,13 +1,28 @@
 const fs = require('fs');
 const path = require('path');
 
+function getWritableDataDir(subName = 'nifty_portal_data') {
+    try {
+        const d = path.join(__dirname, 'data');
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        const testFile = path.join(d, '.test-write');
+        fs.writeFileSync(testFile, 'ok');
+        fs.unlinkSync(testFile);
+        return d;
+    } catch (_) {
+        const d = path.join(process.env.TMPDIR || '/tmp', subName);
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        return d;
+    }
+}
+
 const { isMarketOpenIST } = require('./upstoxMarket');
 
 const UPSTOX_V2 = 'https://api.upstox.com/v2';
 const UPSTOX_HFT_V3 = 'https://api-hft.upstox.com/v3';
 const UPSTOX_SANDBOX_V3 = 'https://api-sandbox.upstox.com/v3';
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = getWritableDataDir('nifty_orders_data');
 const ORDERS_FILE = path.join(DATA_DIR, 'upstox_orders.json');
 
 const INDEX_META = {
@@ -41,14 +56,16 @@ function loadOrderState() {
 }
 
 function saveOrderState(state) {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const trimmed = {
-        seeded: Boolean(state.seeded),
-        seenSignalKeys: (state.seenSignalKeys || []).slice(-500),
-        logs: (state.logs || []).slice(0, 100),
-        lastOrderAt: state.lastOrderAt || null
-    };
-    fs.writeFileSync(ORDERS_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    try {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        const trimmed = {
+            seeded: Boolean(state.seeded),
+            seenSignalKeys: (state.seenSignalKeys || []).slice(-500),
+            logs: (state.logs || []).slice(0, 100),
+            lastOrderAt: state.lastOrderAt || null
+        };
+        fs.writeFileSync(ORDERS_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    } catch (_) {}
 }
 
 function fmtIstNow() {

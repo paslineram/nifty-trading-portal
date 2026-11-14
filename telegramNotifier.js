@@ -1,8 +1,23 @@
 const fs = require('fs');
 const path = require('path');
 
+function getWritableDataDir(subName = 'nifty_portal_data') {
+    try {
+        const d = path.join(__dirname, 'data');
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        const testFile = path.join(d, '.test-write');
+        fs.writeFileSync(testFile, 'ok');
+        fs.unlinkSync(testFile);
+        return d;
+    } catch (_) {
+        const d = path.join(process.env.TMPDIR || '/tmp', subName);
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        return d;
+    }
+}
+
 const TELEGRAM_API = 'https://api.telegram.org';
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = getWritableDataDir('nifty_telegram_data');
 const STATE_FILE = path.join(DATA_DIR, 'telegram_state.json');
 
 function defaultState() {
@@ -33,15 +48,17 @@ function loadTelegramState() {
 }
 
 function saveTelegramState(state) {
-    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-    const trimmed = {
-        seeded: Boolean(state.seeded),
-        sentKeys: (state.sentKeys || []).slice(-600),
-        logs: (state.logs || []).slice(0, 100),
-        lastCheckAt: state.lastCheckAt || null,
-        lastSentAt: state.lastSentAt || null
-    };
-    fs.writeFileSync(STATE_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    try {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        const trimmed = {
+            seeded: Boolean(state.seeded),
+            sentKeys: (state.sentKeys || []).slice(-600),
+            logs: (state.logs || []).slice(0, 100),
+            lastCheckAt: state.lastCheckAt || null,
+            lastSentAt: state.lastSentAt || null
+        };
+        fs.writeFileSync(STATE_FILE, JSON.stringify(trimmed, null, 2), 'utf8');
+    } catch (_) {}
 }
 
 function escapeHtml(v) {

@@ -50,7 +50,22 @@ let appConfig = {
 
 let botState = { status: 'Idle', lastSignal: 'None', tradesToday: 0, currentPnL: 0.0, gammaEnv: 'Neutral', distanceToWall: 145.5 };
 
-const JOURNAL_DIR = path.join(__dirname, 'data');
+function getWritableDataDir(subName = 'nifty_portal_data') {
+    try {
+        const d = path.join(__dirname, 'data');
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        const testFile = path.join(d, '.test-write');
+        fs.writeFileSync(testFile, 'ok');
+        fs.unlinkSync(testFile);
+        return d;
+    } catch (_) {
+        const d = path.join(process.env.TMPDIR || '/tmp', subName);
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        return d;
+    }
+}
+
+const JOURNAL_DIR = getWritableDataDir('nifty_journal_data');
 const JOURNAL_FILE = path.join(JOURNAL_DIR, 'journal.json');
 
 function loadJournalEntries() {
@@ -65,8 +80,10 @@ function loadJournalEntries() {
 }
 
 function saveJournalEntries(entries) {
-    if (!fs.existsSync(JOURNAL_DIR)) fs.mkdirSync(JOURNAL_DIR, { recursive: true });
-    fs.writeFileSync(JOURNAL_FILE, JSON.stringify(entries, null, 2), 'utf8');
+    try {
+        if (!fs.existsSync(JOURNAL_DIR)) fs.mkdirSync(JOURNAL_DIR, { recursive: true });
+        fs.writeFileSync(JOURNAL_FILE, JSON.stringify(entries, null, 2), 'utf8');
+    } catch (_) {}
 }
 
 function formatNowIST() {
