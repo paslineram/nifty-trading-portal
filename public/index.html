@@ -319,7 +319,7 @@ async function loadLive() {
   try { renderLive(await (await fetch('/api/market')).json()); }
   catch (e) { document.getElementById('live-grid').innerHTML = '<p class="dnt">Could not load market data.</p>'; }
 }
-setInterval(() => { if (document.getElementById('tab-dashboard').classList.contains('active') && document.getElementById('portal-container').style.display === 'block') loadLive(); }, 60000);
+setInterval(() => { if (document.getElementById('tab-dashboard').classList.contains('active') && document.getElementById('portal-container').style.display === 'block') loadLive(); }, 30000);
 
 async function runBacktest(e) {
   e.preventDefault();
