@@ -2,10 +2,78 @@ const UPSTOX_V2 = 'https://api.upstox.com/v2';
 const UPSTOX_V3 = 'https://api.upstox.com/v3';
 
 const INSTRUMENTS = [
-    { key: 'NIFTY', upstoxKey: 'NSE_INDEX|Nifty 50', step: 50, flatLimit: 12 },
-    { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', step: 100, flatLimit: 37 }
+    { key: 'NIFTY', upstoxKey: 'NSE_INDEX|Nifty 50', step: 50, flatLimit: 12, lotQty: 25 },
+    { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', step: 100, flatLimit: 37, lotQty: 60 }
 ];
 const VIX_KEY = 'NSE_INDEX|India VIX';
+
+const NIFTY_50_STOCKS = [
+    { symbol: 'ADANIENT', sector: 'Metals & Energy', upstoxKey: 'NSE_EQ|INE423A01024' },
+    { symbol: 'ADANIPORTS', sector: 'Infra', upstoxKey: 'NSE_EQ|INE742F01042' },
+    { symbol: 'APOLLOHOSP', sector: 'Pharma', upstoxKey: 'NSE_EQ|INE437A01024' },
+    { symbol: 'ASIANPAINT', sector: 'FMCG & Consumer', upstoxKey: 'NSE_EQ|INE021A01026' },
+    { symbol: 'AXISBANK', sector: 'Banking', upstoxKey: 'NSE_EQ|INE238A01034' },
+    { symbol: 'BAJAJ-AUTO', sector: 'Auto', upstoxKey: 'NSE_EQ|INE917I01010' },
+    { symbol: 'BAJFINANCE', sector: 'Fin Service', upstoxKey: 'NSE_EQ|INE296A01032' },
+    { symbol: 'BAJAJFINSV', sector: 'Fin Service', upstoxKey: 'NSE_EQ|INE918I01026' },
+    { symbol: 'BEL', sector: 'Infra', upstoxKey: 'NSE_EQ|INE263A01024' },
+    { symbol: 'BHARTIARTL', sector: 'Telecom & Media', upstoxKey: 'NSE_EQ|INE397D01024' },
+    { symbol: 'CIPLA', sector: 'Pharma', upstoxKey: 'NSE_EQ|INE059A01026' },
+    { symbol: 'COALINDIA', sector: 'Energy', upstoxKey: 'NSE_EQ|INE522F01014' },
+    { symbol: 'DRREDDY', sector: 'Pharma', upstoxKey: 'NSE_EQ|INE089A01031' },
+    { symbol: 'EICHERMOT', sector: 'Auto', upstoxKey: 'NSE_EQ|INE066A01021' },
+    { symbol: 'ETERNAL', sector: 'FMCG & Consumer', upstoxKey: 'NSE_EQ|INE758T01015' },
+    { symbol: 'GRASIM', sector: 'Infra', upstoxKey: 'NSE_EQ|INE047A01021' },
+    { symbol: 'HCLTECH', sector: 'IT', upstoxKey: 'NSE_EQ|INE860A01027' },
+    { symbol: 'HDFCBANK', sector: 'Banking', upstoxKey: 'NSE_EQ|INE040A01034' },
+    { symbol: 'HDFCLIFE', sector: 'Fin Service', upstoxKey: 'NSE_EQ|INE795G01014' },
+    { symbol: 'HINDALCO', sector: 'Metal', upstoxKey: 'NSE_EQ|INE038A01020' },
+    { symbol: 'HINDUNILVR', sector: 'FMCG', upstoxKey: 'NSE_EQ|INE030A01027' },
+    { symbol: 'ICICIBANK', sector: 'Banking', upstoxKey: 'NSE_EQ|INE090A01021' },
+    { symbol: 'INDIGO', sector: 'Infra', upstoxKey: 'NSE_EQ|INE646L01027' },
+    { symbol: 'INFY', sector: 'IT', upstoxKey: 'NSE_EQ|INE009A01021' },
+    { symbol: 'ITC', sector: 'FMCG', upstoxKey: 'NSE_EQ|INE154A01025' },
+    { symbol: 'JIOFIN', sector: 'Fin Service', upstoxKey: 'NSE_EQ|INE758E01017' },
+    { symbol: 'JSWSTEEL', sector: 'Metal', upstoxKey: 'NSE_EQ|INE019A01038' },
+    { symbol: 'KOTAKBANK', sector: 'Banking', upstoxKey: 'NSE_EQ|INE237A01036' },
+    { symbol: 'LT', sector: 'Infra', upstoxKey: 'NSE_EQ|INE018A01030' },
+    { symbol: 'M&M', sector: 'Auto', upstoxKey: 'NSE_EQ|INE101A01026' },
+    { symbol: 'MARUTI', sector: 'Auto', upstoxKey: 'NSE_EQ|INE585B01010' },
+    { symbol: 'MAXHEALTH', sector: 'Pharma', upstoxKey: 'NSE_EQ|INE027H01010' },
+    { symbol: 'NESTLEIND', sector: 'FMCG', upstoxKey: 'NSE_EQ|INE239A01024' },
+    { symbol: 'NTPC', sector: 'Energy', upstoxKey: 'NSE_EQ|INE733E01010' },
+    { symbol: 'ONGC', sector: 'Energy', upstoxKey: 'NSE_EQ|INE213A01029' },
+    { symbol: 'POWERGRID', sector: 'Energy', upstoxKey: 'NSE_EQ|INE752E01010' },
+    { symbol: 'RELIANCE', sector: 'Energy', upstoxKey: 'NSE_EQ|INE002A01018' },
+    { symbol: 'SBILIFE', sector: 'Fin Service', upstoxKey: 'NSE_EQ|INE123W01016' },
+    { symbol: 'SBIN', sector: 'Banking', upstoxKey: 'NSE_EQ|INE062A01020' },
+    { symbol: 'SHRIRAMFIN', sector: 'Fin Service', upstoxKey: 'NSE_EQ|INE721A01047' },
+    { symbol: 'SUNPHARMA', sector: 'Pharma', upstoxKey: 'NSE_EQ|INE044A01036' },
+    { symbol: 'TATACONSUM', sector: 'FMCG', upstoxKey: 'NSE_EQ|INE192A01025' },
+    { symbol: 'TMPV', sector: 'Auto', upstoxKey: 'NSE_EQ|INE155A01022' },
+    { symbol: 'TATASTEEL', sector: 'Metal', upstoxKey: 'NSE_EQ|INE081A01020' },
+    { symbol: 'TCS', sector: 'IT', upstoxKey: 'NSE_EQ|INE467B01029' },
+    { symbol: 'TECHM', sector: 'IT', upstoxKey: 'NSE_EQ|INE669C01036' },
+    { symbol: 'TITAN', sector: 'FMCG & Consumer', upstoxKey: 'NSE_EQ|INE280A01028' },
+    { symbol: 'TRENT', sector: 'FMCG & Consumer', upstoxKey: 'NSE_EQ|INE849A01020' },
+    { symbol: 'ULTRACEMCO', sector: 'Infra', upstoxKey: 'NSE_EQ|INE481G01011' },
+    { symbol: 'WIPRO', sector: 'IT', upstoxKey: 'NSE_EQ|INE075A01022' }
+];
+
+const SECTOR_INDICES = [
+    { name: 'Nifty Bank', matchSector: 'Banking', upstoxKey: 'NSE_INDEX|Nifty Bank' },
+    { name: 'Nifty Fin Service', matchSector: 'Fin Service', upstoxKey: 'NSE_INDEX|Nifty Fin Service' },
+    { name: 'Nifty IT', matchSector: 'IT', upstoxKey: 'NSE_INDEX|Nifty IT' },
+    { name: 'Nifty Auto', matchSector: 'Auto', upstoxKey: 'NSE_INDEX|Nifty Auto' },
+    { name: 'Nifty Pharma', matchSector: 'Pharma', upstoxKey: 'NSE_INDEX|Nifty Pharma' },
+    { name: 'Nifty FMCG', matchSector: 'FMCG', upstoxKey: 'NSE_INDEX|Nifty FMCG' },
+    { name: 'Nifty Metal', matchSector: 'Metal', upstoxKey: 'NSE_INDEX|Nifty Metal' },
+    { name: 'Nifty Energy', matchSector: 'Energy', upstoxKey: 'NSE_INDEX|Nifty Energy' },
+    { name: 'Nifty Infra', matchSector: 'Infra', upstoxKey: 'NSE_INDEX|Nifty Infra' },
+    { name: 'Nifty PSU Bank', matchSector: null, upstoxKey: 'NSE_INDEX|Nifty PSU Bank' },
+    { name: 'Nifty Realty', matchSector: null, upstoxKey: 'NSE_INDEX|Nifty Realty' },
+    { name: 'Nifty Media', matchSector: null, upstoxKey: 'NSE_INDEX|Nifty Media' }
+];
 
 const cache = new Map();
 const CACHE_TTL_MS = 10000;
@@ -254,6 +322,7 @@ function computeHourlyTrend(candles15m) {
 function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLatest, daily, fullHma, fullSt) {
     const signals = [];
     const marks = [];
+    const exits = [];
     let paperPts = 0;
     let bullOB = null;
     let bearOB = null;
@@ -268,6 +337,15 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
     const impATR = 0.8;
     const slBuf = 0.25;
     const rr = 1.0;
+
+    // Causal trendline tracking (swing pivot window L = 3, confirmed at p + L with zero look-ahead)
+    const swingL = 3;
+    const swingHighs = [];
+    const swingLows = [];
+    const allTrendlines = [];
+    let activeUp = null;
+    let activeDown = null;
+    const lineVal = (tl, idx) => tl.v1 + tl.slope * (idx - tl.i1);
 
     const lvByDay = {};
     for (let i = 1; i < daily.length; i++) {
@@ -289,6 +367,31 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
     }
 
     let pos = null;
+    const closePos = (barIdx, exitPrice, reason, ts) => {
+        if (!pos) return;
+        const pts = Math.round(pos.side === 'SELL PE' ? (exitPrice - pos.ref) : (pos.ref - exitPrice));
+        if (barIdx >= offsetInFull) {
+            paperPts += pts;
+        }
+        if (pos.signalRef) {
+            pos.signalRef.exitTime = ts ? formatSignalTime(ts) : null;
+            pos.signalRef.exitPrice = Math.round(exitPrice);
+            pos.signalRef.exitReason = reason;
+            pos.signalRef.pts = pts;
+        }
+        const chartExitIdx = barIdx - offsetInFull;
+        if (chartExitIdx >= 0 && chartExitIdx < chartCandles.length && reason !== 'EOD') {
+            exits.push({
+                i: chartExitIdx,
+                side: pos.side === 'SELL PE' ? 'EXIT_PE' : 'EXIT_CE',
+                price: Math.round(exitPrice),
+                reason,
+                pts
+            });
+        }
+        pos = null;
+    };
+
     for (let i = 14; i < fullCandles.length; i++) {
         const c = fullCandles[i];
         const chartIdx = i - offsetInFull;
@@ -296,10 +399,89 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
 
         // Day rollover square-off
         if (i > 0 && fullCandles[i - 1].ymd !== c.ymd && pos) {
-            if (i - 1 >= offsetInFull) {
-                paperPts += pos.side === 'SELL PE' ? (fullCandles[i - 1].c - pos.ref) : (pos.ref - fullCandles[i - 1].c);
+            const prevBar = fullCandles[i - 1];
+            closePos(i - 1, prevBar.c, 'EOD', prevBar.ts);
+        }
+
+        // Update causal swing pivots confirmed at bar p = i - swingL
+        const p = i - swingL;
+        if (p >= swingL) {
+            const pv = fullCandles[p];
+            let isSH = true;
+            let isSL = true;
+            for (let k = p - swingL; k <= p + swingL; k++) {
+                if (k === p) continue;
+                const kc = fullCandles[k];
+                if (k < p) {
+                    if (pv.h <= kc.h) isSH = false;
+                    if (pv.l >= kc.l) isSL = false;
+                } else {
+                    if (pv.h < kc.h) isSH = false;
+                    if (pv.l > kc.l) isSL = false;
+                }
             }
-            pos = null;
+            if (isSH) {
+                for (let j = swingHighs.length - 1; j >= Math.max(0, swingHighs.length - 8); j--) {
+                    const prevSH = swingHighs[j];
+                    if (p - prevSH.i < 4 || pv.h >= prevSH.v) continue;
+                    const slope = (pv.h - prevSH.v) / (p - prevSH.i);
+                    const cand = { side: 'DOWN', i1: prevSH.i, v1: prevSH.v, i2: p, v2: pv.h, slope, broken: false, breakIdx: null, breakPrice: null };
+                    let intact = true;
+                    for (let k = prevSH.i + 1; k <= i; k++) {
+                        if (fullCandles[k].c > lineVal(cand, k)) {
+                            intact = false;
+                            break;
+                        }
+                    }
+                    if (intact) {
+                        activeDown = cand;
+                        allTrendlines.push(cand);
+                        break;
+                    }
+                }
+                swingHighs.push({ i: p, v: pv.h });
+            }
+            if (isSL) {
+                for (let j = swingLows.length - 1; j >= Math.max(0, swingLows.length - 8); j--) {
+                    const prevSL = swingLows[j];
+                    if (p - prevSL.i < 4 || pv.l <= prevSL.v) continue;
+                    const slope = (pv.l - prevSL.v) / (p - prevSL.i);
+                    const cand = { side: 'UP', i1: prevSL.i, v1: prevSL.v, i2: p, v2: pv.l, slope, broken: false, breakIdx: null, breakPrice: null };
+                    let intact = true;
+                    for (let k = prevSL.i + 1; k <= i; k++) {
+                        if (fullCandles[k].c < lineVal(cand, k)) {
+                            intact = false;
+                            break;
+                        }
+                    }
+                    if (intact) {
+                        activeUp = cand;
+                        allTrendlines.push(cand);
+                        break;
+                    }
+                }
+                swingLows.push({ i: p, v: pv.l });
+            }
+        }
+
+        // Check active trendline breaks on bar i close
+        let justBrokeUp = false;
+        let justBrokeDown = false;
+        if (activeUp && !activeUp.broken && i > activeUp.i2 + swingL) {
+            if (c.c < lineVal(activeUp, i)) {
+                activeUp.broken = true;
+                activeUp.breakIdx = i;
+                activeUp.breakPrice = c.c;
+                justBrokeUp = true;
+            }
+        }
+        if (activeDown && !activeDown.broken && i > activeDown.i2 + swingL) {
+            if (c.c > lineVal(activeDown, i)) {
+                activeDown.broken = true;
+                activeDown.breakIdx = i;
+                activeDown.breakPrice = c.c;
+                justBrokeDown = true;
+            }
         }
 
         // Rolling ATR14 at bar i
@@ -310,33 +492,30 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         }
         atr /= 14;
 
-        // Check active position SL / TP1
+        // Check active position SL / TP1, then trendline break exit on candle close
         if (pos) {
             if (pos.side === 'SELL PE') {
                 if (c.l <= pos.sl) {
-                    if (i >= offsetInFull) paperPts += (pos.sl - pos.ref);
-                    pos = null;
+                    closePos(i, pos.sl, 'SL', c.ts);
                 } else if (c.h >= pos.tp1) {
-                    if (i >= offsetInFull) paperPts += (pos.tp1 - pos.ref);
-                    pos = null;
+                    closePos(i, pos.tp1, 'TP1', c.ts);
+                } else if (justBrokeUp) {
+                    closePos(i, c.c, 'TL BREAK', c.ts);
                 }
             } else {
                 if (c.h >= pos.sl) {
-                    if (i >= offsetInFull) paperPts += (pos.ref - pos.sl);
-                    pos = null;
+                    closePos(i, pos.sl, 'SL', c.ts);
                 } else if (c.l <= pos.tp1) {
-                    if (i >= offsetInFull) paperPts += (pos.ref - pos.tp1);
-                    pos = null;
+                    closePos(i, pos.tp1, 'TP1', c.ts);
+                } else if (justBrokeDown) {
+                    closePos(i, c.c, 'TL BREAK', c.ts);
                 }
             }
         }
 
         // Intraday square-off at 15:15 IST
         if (hm >= '15:15' && pos) {
-            if (i >= offsetInFull) {
-                paperPts += pos.side === 'SELL PE' ? (c.c - pos.ref) : (pos.ref - c.c);
-            }
-            pos = null;
+            closePos(i, c.c, 'EOD', c.ts);
         }
 
         if (bullOB && (c.c < bullOB.bot || i - bullOB.barIndex > obMaxAge)) bullOB = null;
@@ -378,8 +557,9 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 const risk = Math.max(ref - sl, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rr);
-                    pos = { side: 'SELL PE', ref, sl, tp1 };
-                    signals.unshift({ time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup: 'OB/FVG' });
+                    const sigRef = { time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup: 'OB/FVG' };
+                    pos = { side: 'SELL PE', ref, sl, tp1, signalRef: sigRef };
+                    signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'PE' });
                     bullOB = null;
                     bullFVG = null;
@@ -391,8 +571,9 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 const risk = Math.max(sl - ref, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rr);
-                    pos = { side: 'SELL CE', ref, sl, tp1 };
-                    signals.unshift({ time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup: 'OB/FVG' });
+                    const sigRef = { time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup: 'OB/FVG' };
+                    pos = { side: 'SELL CE', ref, sl, tp1, signalRef: sigRef };
+                    signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'CE' });
                     bearOB = null;
                     bearFVG = null;
@@ -441,9 +622,45 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         paperPts += pos.side === 'SELL PE' ? (lastClose - pos.ref) : (pos.ref - lastClose);
     }
 
+    // Select the most recent UP and DOWN trendlines that appear in the 3-day chart window
+    const lastBarFull = fullCandles.length - 1;
+    const formatChartTL = (tl) => {
+        const rawEndIdx = tl.broken && tl.breakIdx != null
+            ? Math.min(lastBarFull, tl.breakIdx + 1)
+            : lastBarFull;
+        if (rawEndIdx < offsetInFull || tl.i2 < offsetInFull - 4) return null;
+        const clippedStart = tl.i1 < offsetInFull;
+        const i1 = clippedStart ? 0 : (tl.i1 - offsetInFull);
+        const v1 = clippedStart ? lineVal(tl, offsetInFull) : tl.v1;
+        const i2 = Math.max(0, tl.i2 - offsetInFull);
+        const v2 = tl.i2 < offsetInFull ? lineVal(tl, offsetInFull) : tl.v2;
+        const endIdx = Math.min(chartCandles.length - 1, rawEndIdx - offsetInFull);
+        const breakChartIdx = tl.breakIdx != null ? tl.breakIdx - offsetInFull : null;
+        return {
+            side: tl.side,
+            i1,
+            v1: r2(v1),
+            hasAnchor1: !clippedStart,
+            i2,
+            v2: r2(v2),
+            hasAnchor2: tl.i2 >= offsetInFull,
+            endIdx,
+            endVal: r2(lineVal(tl, offsetInFull + endIdx)),
+            broken: Boolean(tl.broken),
+            breakIdx: breakChartIdx != null && breakChartIdx >= 0 && breakChartIdx < chartCandles.length ? breakChartIdx : null,
+            breakPrice: tl.breakPrice != null ? r2(tl.breakPrice) : null
+        };
+    };
+
+    const upTLs = allTrendlines.filter(t => t.side === 'UP').map(formatChartTL).filter(Boolean).slice(-2);
+    const dnTLs = allTrendlines.filter(t => t.side === 'DOWN').map(formatChartTL).filter(Boolean).slice(-2);
+    const trendlines = [...upTLs, ...dnTLs].sort((a, b) => a.i2 - b.i2);
+
     return {
         signals: signals.slice(0, 6),
         marks,
+        exits,
+        trendlines,
         paperPts: Math.round(paperPts),
         hasActiveOB: Boolean(bullOB || bearOB || bullFVG || bearFVG),
         atrLatest
@@ -877,6 +1094,8 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         hma,
         st,
         marks: signalsEnabled ? replay.marks : [],
+        exits: signalsEnabled ? replay.exits : [],
+        trendlines: replay.trendlines || [],
         chain,
         seller,
         agents,
@@ -902,6 +1121,158 @@ async function getIndiaVixStats(todayYmd, quotes) {
     return { current, pctAbove, rank };
 }
 
+async function mapWithConcurrency(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (true) {
+            const idx = next++;
+            if (idx >= items.length) break;
+            out[idx] = await fn(items[idx], idx);
+        }
+    });
+    await Promise.all(workers);
+    return out;
+}
+
+async function fetchBatchQuotes(upstoxKeys, token) {
+    if (!token || !upstoxKeys.length) return {};
+    const merged = {};
+    const chunkSize = 35;
+    for (let i = 0; i < upstoxKeys.length; i += chunkSize) {
+        const chunk = upstoxKeys.slice(i, i + chunkSize);
+        try {
+            const json = await fetchJson(
+                `${UPSTOX_V2}/market-quote/quotes?instrument_key=${encodeURIComponent(chunk.join(','))}`,
+                token
+            );
+            if (json?.data) Object.assign(merged, json.data);
+        } catch (_) {
+            // Fall back to v3 daily candles per missing instrument
+        }
+    }
+    return merged;
+}
+
+async function fetchKeyPriceChange(upstoxKey, todayYmd, batchQuotes, marketOpen) {
+    const q = findQuoteForKey(batchQuotes, upstoxKey);
+    if (q && q.last_price != null && q.net_change != null) {
+        const price = Number(q.last_price);
+        const change = Number(q.net_change);
+        const prevClose = price - change;
+        if (price > 0 && prevClose > 0 && (change !== 0 || marketOpen)) {
+            const changePct = r2((change / prevClose) * 100);
+            return { price: r2(price), prevClose: r2(prevClose), change: r2(change), changePct };
+        }
+    }
+
+    // Fallback (pre/post-market reset or missing token): fetch Upstox v3 daily candles
+    const enc = encodeURIComponent(upstoxKey);
+    const fromYmd = addDaysYmd(todayYmd, -10);
+    const [hist, intra] = await Promise.all([
+        fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/days/1/${todayYmd}/${fromYmd}`).catch(() => ({ data: { candles: [] } })),
+        marketOpen
+            ? fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/days/1`).catch(() => ({ data: { candles: [] } }))
+            : Promise.resolve({ data: { candles: [] } })
+    ]);
+    const map = new Map();
+    for (const c of [...parseCandles(hist?.data?.candles), ...parseCandles(intra?.data?.candles)]) {
+        map.set(c.ymd, c);
+    }
+    const daily = Array.from(map.values()).sort((a, b) => a.ymd.localeCompare(b.ymd));
+    if (daily.length < 2) return null;
+    const latest = daily[daily.length - 1];
+    const prev = daily[daily.length - 2];
+    if (!latest?.c || !prev?.c) return null;
+    const change = r2(latest.c - prev.c);
+    const changePct = r2(((latest.c - prev.c) / prev.c) * 100);
+    return { price: r2(latest.c), prevClose: r2(prev.c), change, changePct };
+}
+
+async function fetchMarketXRay(todayYmd, token, marketOpen) {
+    const allKeys = [...NIFTY_50_STOCKS.map(s => s.upstoxKey), ...SECTOR_INDICES.map(s => s.upstoxKey)];
+    const batchQuotes = await fetchBatchQuotes(allKeys, token);
+
+    const flatBand = 0.15;
+    const classify = (pct) => pct > flatBand ? 'UP' : pct < -flatBand ? 'LOW' : 'NEUTRAL';
+
+    const [stockRows, sectorRows] = await Promise.all([
+        mapWithConcurrency(NIFTY_50_STOCKS, 16, async (st) => {
+            const p = await fetchKeyPriceChange(st.upstoxKey, todayYmd, batchQuotes, marketOpen);
+            if (!p) return null;
+            return {
+                symbol: st.symbol,
+                sector: st.sector,
+                price: p.price,
+                prevClose: p.prevClose,
+                change: p.change,
+                changePct: p.changePct,
+                status: classify(p.changePct)
+            };
+        }),
+        mapWithConcurrency(SECTOR_INDICES, 12, async (sec) => {
+            const p = await fetchKeyPriceChange(sec.upstoxKey, todayYmd, batchQuotes, marketOpen);
+            if (!p) return null;
+            return {
+                name: sec.name,
+                matchSector: sec.matchSector,
+                price: p.price,
+                change: p.change,
+                changePct: p.changePct,
+                status: p.changePct > flatBand ? 'BULL' : p.changePct < -flatBand ? 'BEAR' : 'NEUTRAL'
+            };
+        })
+    ]);
+
+    const stocks = stockRows.filter(Boolean);
+    const up = stocks.filter(s => s.status === 'UP').length;
+    const low = stocks.filter(s => s.status === 'LOW').length;
+    const neutral = stocks.filter(s => s.status === 'NEUTRAL').length;
+    const total = stocks.length || 1;
+
+    const sortedDesc = [...stocks].sort((a, b) => b.changePct - a.changePct);
+    const sortedAsc = [...stocks].sort((a, b) => a.changePct - b.changePct);
+    const topHigh = sortedDesc.slice(0, 8);
+    const topLoss = sortedAsc.slice(0, 8);
+
+    const sectors = sectorRows.filter(Boolean).map(sec => {
+        const members = sec.matchSector
+            ? stocks.filter(s => s.sector === sec.matchSector || (sec.matchSector === 'FMCG' && s.sector === 'FMCG & Consumer'))
+            : [];
+        return {
+            name: sec.name,
+            price: sec.price,
+            change: sec.change,
+            changePct: sec.changePct,
+            status: sec.status,
+            breadth: members.length ? {
+                up: members.filter(m => m.status === 'UP').length,
+                low: members.filter(m => m.status === 'LOW').length,
+                neutral: members.filter(m => m.status === 'NEUTRAL').length,
+                total: members.length
+            } : null
+        };
+    }).sort((a, b) => b.changePct - a.changePct);
+
+    return {
+        breadth: {
+            total: stocks.length,
+            up,
+            low,
+            neutral,
+            upPct: Math.round((up / total) * 100),
+            lowPct: Math.round((low / total) * 100),
+            neutralPct: Math.round((neutral / total) * 100),
+            adRatio: low ? r2(up / low) : up,
+            flatBand
+        },
+        sectors,
+        topHigh,
+        topLoss,
+        stocks: sortedDesc
+    };
+}
+
 async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', force = false) {
     const rawMode = String(selectedInstrument || 'BOTH').toUpperCase();
     const mode = ['NIFTY', 'SENSEX', 'BOTH'].includes(rawMode) ? rawMode : 'BOTH';
@@ -916,9 +1287,10 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     const quoteRes = await fetchLiveQuotes(token);
     const vixInfo = await getIndiaVixStats(ist.ymd, quoteRes.quotes);
 
-    const instruments = await Promise.all(
-        INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token, mode))
-    );
+    const [instruments, xray] = await Promise.all([
+        Promise.all(INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token, mode))),
+        fetchMarketXRay(ist.ymd, token, marketOpen).catch(() => null)
+    ]);
 
     const latestTs = instruments.map(i => i.latestTs).filter(Boolean).sort().pop();
     const fetchedAt = new Date().toISOString();
@@ -940,6 +1312,7 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
         source: quoteRes.quotes ? 'upstox-live' : 'upstox-candles',
         notice: notices.join(' '),
         instruments,
+        xray,
         autopilot: null,
         condor: null,
         alerts: []
@@ -949,8 +1322,445 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     return data;
 }
 
+async function fetchCandles15mRange(upstoxKey, todayYmd, totalDays) {
+    const enc = encodeURIComponent(upstoxKey);
+    const chunks = [];
+    let endYmd = todayYmd;
+    let remaining = Math.max(15, Math.min(180, totalDays));
+    while (remaining > 0) {
+        const span = Math.min(28, remaining);
+        const startYmd = addDaysYmd(endYmd, -span);
+        chunks.push({ fromYmd: startYmd, toYmd: endYmd });
+        endYmd = addDaysYmd(startYmd, -1);
+        remaining -= (span + 1);
+    }
+
+    const resps = await Promise.all([
+        ...chunks.map(ch =>
+            fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/minutes/15/${ch.toYmd}/${ch.fromYmd}`).catch(() => ({ data: { candles: [] } }))
+        ),
+        fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/minutes/15`).catch(() => ({ data: { candles: [] } }))
+    ]);
+
+    const map = new Map();
+    for (const r of resps) {
+        for (const c of parseCandles(r?.data?.candles)) {
+            map.set(c.ts, c);
+        }
+    }
+    return Array.from(map.values()).sort((a, b) => a.ts.localeCompare(b.ts));
+}
+
+function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
+    const { obMaxAge, rrRatio, maxTradesPerDay, useTrendlineExit } = opts;
+    const qty = inst.key === 'NIFTY' ? (opts.niftyQty || 25) : (opts.sensexQty || 60);
+    if (!candles15m.length || daily.length < 2) return [];
+
+    const fullCloses = candles15m.map(c => c.c);
+    const fullHma = computeHMA(fullCloses);
+    const fullSt = computeSupertrend(candles15m, 10, 3);
+
+    const lvByDay = {};
+    for (let i = 1; i < daily.length; i++) {
+        const p = daily[i - 1];
+        const piv = (p.h + p.l + p.c) / 3;
+        const bc = (p.h + p.l) / 2;
+        const tc = 2 * piv - bc;
+        lvByDay[daily[i].ymd] = {
+            piv,
+            top: Math.max(tc, bc),
+            bot: Math.min(tc, bc),
+            res: [2 * piv - p.l, piv + (p.h - p.l), p.h],
+            sup: [2 * piv - p.h, piv - (p.h - p.l), p.l]
+        };
+    }
+
+    const structBars = 6;
+    const obLookback = 10;
+    const impATR = 0.8;
+    const slBuf = 0.25;
+    const swingL = 3;
+    const swingHighs = [];
+    const swingLows = [];
+    let activeUp = null;
+    let activeDown = null;
+    const lineVal = (tl, idx) => tl.v1 + tl.slope * (idx - tl.i1);
+
+    let bullOB = null;
+    let bearOB = null;
+    let bullFVG = null;
+    let bearFVG = null;
+    let prevBullImp = false;
+    let prevBearImp = false;
+    let pos = null;
+    let tradesToday = 0;
+    let lastYmd = '';
+    const trades = [];
+
+    const closePos = (exitPrice, reason, exitTs) => {
+        if (!pos) return;
+        const pts = Math.round(pos.side === 'SELL PE' ? (exitPrice - pos.ref) : (pos.ref - exitPrice));
+        const pnl = Math.round(pts * qty);
+        trades.push({
+            index: inst.key,
+            qty,
+            entryTs: pos.entryTs,
+            entryTime: formatSignalTime(pos.entryTs),
+            exitTs: exitTs || pos.entryTs,
+            exitTime: exitTs ? formatSignalTime(exitTs) : '-',
+            side: pos.side,
+            entryPrice: pos.ref,
+            sl: pos.sl,
+            tp1: pos.tp1,
+            exitPrice: Math.round(exitPrice),
+            exitReason: reason,
+            pts,
+            pnl,
+            setup: pos.setup
+        });
+        pos = null;
+    };
+
+    for (let i = 14; i < candles15m.length; i++) {
+        const c = candles15m[i];
+        const hm = String(c.ts).slice(11, 16);
+
+        if (c.ymd !== lastYmd) {
+            if (pos && i > 0) {
+                const prevBar = candles15m[i - 1];
+                closePos(prevBar.c, 'EOD', prevBar.ts);
+            }
+            tradesToday = 0;
+            lastYmd = c.ymd;
+        }
+
+        // Causal L=3 swing trendlines
+        const p = i - swingL;
+        if (p >= swingL) {
+            const pv = candles15m[p];
+            let isSH = true;
+            let isSL = true;
+            for (let k = p - swingL; k <= p + swingL; k++) {
+                if (k === p) continue;
+                const kc = candles15m[k];
+                if (k < p) {
+                    if (pv.h <= kc.h) isSH = false;
+                    if (pv.l >= kc.l) isSL = false;
+                } else {
+                    if (pv.h < kc.h) isSH = false;
+                    if (pv.l > kc.l) isSL = false;
+                }
+            }
+            if (isSH) {
+                for (let j = swingHighs.length - 1; j >= Math.max(0, swingHighs.length - 8); j--) {
+                    const prevSH = swingHighs[j];
+                    if (p - prevSH.i < 4 || pv.h >= prevSH.v) continue;
+                    const slope = (pv.h - prevSH.v) / (p - prevSH.i);
+                    const cand = { i1: prevSH.i, v1: prevSH.v, i2: p, slope, broken: false };
+                    let intact = true;
+                    for (let k = prevSH.i + 1; k <= i; k++) {
+                        if (candles15m[k].c > lineVal(cand, k)) { intact = false; break; }
+                    }
+                    if (intact) { activeDown = cand; break; }
+                }
+                swingHighs.push({ i: p, v: pv.h });
+            }
+            if (isSL) {
+                for (let j = swingLows.length - 1; j >= Math.max(0, swingLows.length - 8); j--) {
+                    const prevSL = swingLows[j];
+                    if (p - prevSL.i < 4 || pv.l <= prevSL.v) continue;
+                    const slope = (pv.l - prevSL.v) / (p - prevSL.i);
+                    const cand = { i1: prevSL.i, v1: prevSL.v, i2: p, slope, broken: false };
+                    let intact = true;
+                    for (let k = prevSL.i + 1; k <= i; k++) {
+                        if (candles15m[k].c < lineVal(cand, k)) { intact = false; break; }
+                    }
+                    if (intact) { activeUp = cand; break; }
+                }
+                swingLows.push({ i: p, v: pv.l });
+            }
+        }
+
+        let justBrokeUp = false;
+        let justBrokeDown = false;
+        if (activeUp && !activeUp.broken && i > activeUp.i2 + swingL && c.c < lineVal(activeUp, i)) {
+            activeUp.broken = true;
+            justBrokeUp = true;
+        }
+        if (activeDown && !activeDown.broken && i > activeDown.i2 + swingL && c.c > lineVal(activeDown, i)) {
+            activeDown.broken = true;
+            justBrokeDown = true;
+        }
+
+        let atr = 0;
+        for (let k = i - 13; k <= i; k++) {
+            const cur = candles15m[k], prev = candles15m[k - 1];
+            atr += Math.max(cur.h - cur.l, Math.abs(cur.h - prev.c), Math.abs(cur.l - prev.c));
+        }
+        atr /= 14;
+
+        if (pos) {
+            if (pos.side === 'SELL PE') {
+                if (c.l <= pos.sl) closePos(pos.sl, 'SL', c.ts);
+                else if (c.h >= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
+                else if (useTrendlineExit && justBrokeUp) closePos(c.c, 'TL BREAK', c.ts);
+            } else {
+                if (c.h >= pos.sl) closePos(pos.sl, 'SL', c.ts);
+                else if (c.l <= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
+                else if (useTrendlineExit && justBrokeDown) closePos(c.c, 'TL BREAK', c.ts);
+            }
+        }
+
+        if (hm >= '15:15' && pos) {
+            closePos(c.c, 'EOD', c.ts);
+        }
+
+        if (bullOB && (c.c < bullOB.bot || i - bullOB.barIndex > obMaxAge)) bullOB = null;
+        if (bearOB && (c.c > bearOB.top || i - bearOB.barIndex > obMaxAge)) bearOB = null;
+        if (bullFVG && (c.c < bullFVG.bot || i - bullFVG.barIndex > obMaxAge)) bullFVG = null;
+        if (bearFVG && (c.c > bearFVG.top || i - bearFVG.barIndex > obMaxAge)) bearFVG = null;
+
+        let structHigh = -Infinity, structLow = Infinity;
+        for (let k = Math.max(0, i - structBars); k < i; k++) {
+            if (candles15m[k].h > structHigh) structHigh = candles15m[k].h;
+            if (candles15m[k].l < structLow) structLow = candles15m[k].l;
+        }
+
+        const lv = lvByDay[c.ymd];
+        const stUp = fullSt[i]?.up;
+        const inWindow = hm >= '09:30' && hm <= '14:45';
+        const hmaCur = fullHma[i], hmaPrev = fullHma[i - 1];
+        const hmaUp = hmaCur != null && hmaPrev != null && hmaCur > hmaPrev;
+        const hmaDn = hmaCur != null && hmaPrev != null && hmaCur < hmaPrev;
+        const bullHma = hmaCur == null || (c.c >= hmaCur && hmaUp);
+        const bearHma = hmaCur == null || (c.c <= hmaCur || hmaDn);
+        const resRoom = !lv || lv.res.filter(r => r > c.c).every(r => (r - c.c) > 0.8 * atr);
+        const supRoom = !lv || lv.sup.filter(s => s < c.c).every(s => (c.c - s) > 0.8 * atr);
+        const bullBias = stUp === true && (!lv || c.c >= lv.bot) && bullHma && resRoom;
+        const bearBias = stUp === false && (!lv || c.c <= lv.top) && bearHma && supRoom;
+
+        const longOB = bullOB && c.l <= bullOB.top && c.c > bullOB.bot && c.c > c.o;
+        const longFVG = bullFVG && c.l <= bullFVG.top && c.c > bullFVG.bot && c.c > c.o;
+        const shortOB = bearOB && c.h >= bearOB.bot && c.c < bearOB.top && c.c < c.o;
+        const shortFVG = bearFVG && c.h >= bearFVG.bot && c.c < bearFVG.top && c.c < c.o;
+
+        if (c.ymd >= simStartYmd && inWindow && !pos && tradesToday < maxTradesPerDay) {
+            if ((longOB || longFVG) && bullBias) {
+                const ref = Math.round(c.c);
+                const stopBase = bullOB ? bullOB.bot : bullFVG.stopBase;
+                const sl = Math.round(stopBase - slBuf * atr);
+                const risk = Math.max(ref - sl, atr * 0.5);
+                if (risk <= 4 * atr) {
+                    const tp1 = Math.round(ref + risk * rrRatio);
+                    const setup = longOB && longFVG ? 'OB+FVG' : longOB ? 'OB' : 'FVG';
+                    pos = { side: 'SELL PE', ref, sl, tp1, entryTs: c.ts, setup };
+                    tradesToday += 1;
+                    bullOB = null;
+                    bullFVG = null;
+                }
+            } else if ((shortOB || shortFVG) && bearBias) {
+                const ref = Math.round(c.c);
+                const stopBase = bearOB ? bearOB.top : bearFVG.stopBase;
+                const sl = Math.round(stopBase + slBuf * atr);
+                const risk = Math.max(sl - ref, atr * 0.5);
+                if (risk <= 4 * atr) {
+                    const tp1 = Math.round(ref - risk * rrRatio);
+                    const setup = shortOB && shortFVG ? 'OB+FVG' : shortOB ? 'OB' : 'FVG';
+                    pos = { side: 'SELL CE', ref, sl, tp1, entryTs: c.ts, setup };
+                    tradesToday += 1;
+                    bearOB = null;
+                    bearFVG = null;
+                }
+            }
+        }
+
+        if (i >= 2) {
+            const c2 = candles15m[i - 2];
+            if (prevBullImp && c.l > c2.h) bullFVG = { top: c.l, bot: c2.h, stopBase: c2.l, barIndex: i };
+            if (prevBearImp && c.h < c2.l) bearFVG = { top: c2.l, bot: c.h, stopBase: c2.h, barIndex: i };
+        }
+
+        const bullImpulse = c.c > c.o && (c.c - c.o) > impATR * atr && c.c > structHigh;
+        const bearImpulse = c.c < c.o && (c.o - c.c) > impATR * atr && c.c < structLow;
+
+        if (bullImpulse) {
+            for (let k = 1; k <= obLookback; k++) {
+                const idx = i - k;
+                if (idx >= 0 && candles15m[idx].c < candles15m[idx].o) {
+                    bullOB = { top: candles15m[idx].h, bot: candles15m[idx].l, barIndex: i };
+                    break;
+                }
+            }
+        }
+        if (bearImpulse) {
+            for (let k = 1; k <= obLookback; k++) {
+                const idx = i - k;
+                if (idx >= 0 && candles15m[idx].c > candles15m[idx].o) {
+                    bearOB = { top: candles15m[idx].h, bot: candles15m[idx].l, barIndex: i };
+                    break;
+                }
+            }
+        }
+
+        prevBullImp = bullImpulse;
+        prevBearImp = bearImpulse;
+    }
+
+    if (pos && candles15m.length) {
+        const lastBar = candles15m[candles15m.length - 1];
+        closePos(lastBar.c, 'OPEN', lastBar.ts);
+    }
+
+    return trades;
+}
+
+async function runBacktestSimulation(params = {}) {
+    const rawInst = String(params.instrument || 'BOTH').toUpperCase();
+    const instrument = ['NIFTY', 'SENSEX', 'BOTH'].includes(rawInst) ? rawInst : 'BOTH';
+    const lookbackDays = Math.max(7, Math.min(120, Number(params.lookbackDays) || 30));
+    const lots = Math.max(1, Math.min(100, Number(params.lots) || 1));
+    const niftyLotSize = Math.max(1, Math.min(5000, Number(params.niftyLotSize) || 25));
+    const sensexLotSize = Math.max(1, Math.min(5000, Number(params.sensexLotSize) || 60));
+    const niftyQty = lots * niftyLotSize;
+    const sensexQty = lots * sensexLotSize;
+    const obMaxAge = Math.max(5, Math.min(80, Number(params.obMaxAge) || 25));
+    const rrRatio = Math.max(0.5, Math.min(4.0, Number(params.rrRatio) || 1.0));
+    const maxTradesPerDay = Math.max(1, Math.min(10, Number(params.maxTradesPerDay) || 3));
+    const useTrendlineExit = params.useTrendlineExit !== false && params.useTrendlineExit !== 'false';
+
+    const ist = getISTParts(new Date());
+    const simStartYmd = addDaysYmd(ist.ymd, -lookbackDays);
+    const targetInsts = instrument === 'BOTH' ? INSTRUMENTS : INSTRUMENTS.filter(i => i.key === instrument);
+
+    const opts = { obMaxAge, rrRatio, maxTradesPerDay, useTrendlineExit, niftyQty, sensexQty };
+    const perIndexData = await Promise.all(targetInsts.map(async (inst) => {
+        const [candles15m, daily] = await Promise.all([
+            fetchCandles15mRange(inst.upstoxKey, ist.ymd, lookbackDays + 21),
+            fetchDailyCandles(inst.upstoxKey, ist.ymd, lookbackDays + 35)
+        ]);
+        const trades = simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts);
+        const simBars = candles15m.filter(c => c.ymd >= simStartYmd);
+        return {
+            key: inst.key,
+            qty: inst.key === 'NIFTY' ? niftyQty : sensexQty,
+            barsEvaluated: simBars.length,
+            firstYmd: simBars[0]?.ymd || simStartYmd,
+            lastYmd: simBars[simBars.length - 1]?.ymd || ist.ymd,
+            trades
+        };
+    }));
+
+    const allTrades = perIndexData
+        .flatMap(d => d.trades)
+        .sort((a, b) => a.exitTs.localeCompare(b.exitTs) || a.entryTs.localeCompare(b.entryTs));
+
+    let cumPts = 0;
+    let cumRupees = 0;
+    let peakRupees = 0;
+    let maxDrawdownRupees = 0;
+    let peakPts = 0;
+    let maxDrawdownPts = 0;
+    const equityCurve = [{ label: formatDayLabel(simStartYmd), equityPts: 0, equityRupees: 0, pts: 0, pnl: 0 }];
+
+    for (const t of allTrades) {
+        cumPts += t.pts;
+        cumRupees += t.pnl;
+        if (cumPts > peakPts) peakPts = cumPts;
+        if (cumPts < peakPts) maxDrawdownPts = Math.max(maxDrawdownPts, peakPts - cumPts);
+        if (cumRupees > peakRupees) peakRupees = cumRupees;
+        const ddRupees = peakRupees - cumRupees;
+        if (ddRupees > maxDrawdownRupees) maxDrawdownRupees = ddRupees;
+        equityCurve.push({
+            label: `${t.index} ${t.exitTime}`,
+            equityPts: Math.round(cumPts),
+            equityRupees: Math.round(cumRupees),
+            pts: t.pts,
+            pnl: t.pnl
+        });
+    }
+
+    const totalTrades = allTrades.length;
+    const wins = allTrades.filter(t => t.pnl > 0).length;
+    const losses = allTrades.filter(t => t.pnl < 0).length;
+    const breakeven = totalTrades - wins - losses;
+    const winRatePct = totalTrades ? r1((wins / totalTrades) * 100) : 0;
+
+    const grossWinRupees = allTrades.filter(t => t.pnl > 0).reduce((s, t) => s + t.pnl, 0);
+    const grossLossRupees = Math.abs(allTrades.filter(t => t.pnl < 0).reduce((s, t) => s + t.pnl, 0));
+    const profitFactor = grossLossRupees > 0 ? r2(grossWinRupees / grossLossRupees) : (grossWinRupees > 0 ? 99 : 0);
+
+    const grossWinPts = allTrades.filter(t => t.pts > 0).reduce((s, t) => s + t.pts, 0);
+    const grossLossPts = Math.abs(allTrades.filter(t => t.pts < 0).reduce((s, t) => s + t.pts, 0));
+    const avgWinPts = wins ? r1(grossWinPts / wins) : 0;
+    const avgLossPts = losses ? r1(-grossLossPts / losses) : 0;
+    const expectancyPts = totalTrades ? r1(cumPts / totalTrades) : 0;
+    const expectancyRupees = totalTrades ? Math.round(cumRupees / totalTrades) : 0;
+
+    const exitReasons = ['TP1', 'TL BREAK', 'SL', 'EOD', 'OPEN'];
+    const exitBreakdown = exitReasons.map(reason => {
+        const list = allTrades.filter(t => t.exitReason === reason);
+        if (!list.length) return null;
+        const w = list.filter(t => t.pnl > 0).length;
+        const pts = list.reduce((s, t) => s + t.pts, 0);
+        const pnl = list.reduce((s, t) => s + t.pnl, 0);
+        return {
+            reason,
+            count: list.length,
+            winRate: `${Math.round((w / list.length) * 100)}%`,
+            pts: Math.round(pts),
+            pnl: Math.round(pnl)
+        };
+    }).filter(Boolean);
+
+    const perIndex = perIndexData.map(d => {
+        const cnt = d.trades.length;
+        const w = d.trades.filter(t => t.pnl > 0).length;
+        const pts = d.trades.reduce((s, t) => s + t.pts, 0);
+        const pnl = d.trades.reduce((s, t) => s + t.pnl, 0);
+        return {
+            key: d.key,
+            qty: d.qty,
+            barsEvaluated: d.barsEvaluated,
+            trades: cnt,
+            wins: w,
+            winRate: cnt ? `${r1((w / cnt) * 100)}%` : '0%',
+            pts: Math.round(pts),
+            pnl: Math.round(pnl)
+        };
+    });
+
+    const fmtInr = n => `${n < 0 ? '-' : ''}₹ ${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
+
+    return {
+        params: { instrument, lookbackDays, lots, niftyLotSize, sensexLotSize, niftyQty, sensexQty, obMaxAge, rrRatio, maxTradesPerDay, useTrendlineExit },
+        startDate: perIndexData.map(d => d.firstYmd).sort()[0] || simStartYmd,
+        endDate: perIndexData.map(d => d.lastYmd).sort().pop() || ist.ymd,
+        barsEvaluated: perIndexData.reduce((s, d) => s + d.barsEvaluated, 0),
+        totalTrades,
+        wins,
+        losses,
+        breakeven,
+        winRate: `${winRatePct}%`,
+        profitFactor: grossLossRupees === 0 && grossWinRupees > 0 ? '∞' : profitFactor,
+        netPts: Math.round(cumPts),
+        netPnL: fmtInr(cumRupees),
+        netPnLRaw: Math.round(cumRupees),
+        maxDrawdownPts: Math.round(maxDrawdownPts),
+        maxDrawdown: fmtInr(maxDrawdownRupees),
+        maxDrawdownRaw: Math.round(maxDrawdownRupees),
+        avgWinPts,
+        avgLossPts,
+        expectancyPts,
+        expectancyRupees,
+        equityCurve,
+        exitBreakdown,
+        perIndex,
+        trades: [...allTrades].reverse()
+    };
+}
+
 function clearMarketCache() {
     cache.clear();
 }
 
-module.exports = { getLiveMarketSnapshot, clearMarketCache };
+module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation };

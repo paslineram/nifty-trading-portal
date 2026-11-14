@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 require('dotenv').config();
-const { getLiveMarketSnapshot, clearMarketCache } = require('./upstoxMarket');
+const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation } = require('./upstoxMarket');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -164,16 +164,24 @@ app.post('/api/settings', async (req, res) => {
 
 app.get('/api/dashboard', (req, res) => res.json({ botState, appConfig: getSafeConfig(), tradeHistory }));
 
-app.post('/api/backtest', (req, res) => {
-    res.json({
-        success: true,
-        results: {
-            totalTrades: 142, winRate: '64.8%', profitFactor: 2.14,
-            maxDrawdown: '₹ 8,450', netPnL: '₹ 1,24,600',
-            equityCurve: [100000, 104000, 102500, 111000, 118000, 115000, 124600],
-            trades: tradeHistory
-        }
-    });
+app.post('/api/backtest', async (req, res) => {
+    try {
+        const body = req.body || {};
+        const results = await runBacktestSimulation({
+            instrument: body.instrument || appConfig.instrument,
+            lookbackDays: body.lookbackDays,
+            lots: body.lots ?? 1,
+            niftyLotSize: body.niftyLotSize ?? 25,
+            sensexLotSize: body.sensexLotSize ?? 60,
+            obMaxAge: body.obMaxAge ?? appConfig.obMaxAge,
+            rrRatio: body.rrRatio,
+            maxTradesPerDay: body.maxTradesPerDay ?? appConfig.maxTrades,
+            useTrendlineExit: body.useTrendlineExit
+        });
+        res.json({ success: true, results });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Backtest simulation failed' });
+    }
 });
 
 app.post('/api/bot/toggle', (req, res) => {
