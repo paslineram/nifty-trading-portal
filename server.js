@@ -264,17 +264,26 @@ app.post('/api/settings', async (req, res) => {
     const body = req.body || {};
     const allowed = [
         'upstoxToken', 'instrument', 'lotSize', 'actionType', 'maxTrades', 'obMaxAge', 'impATR',
-        'telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'
+        'telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor',
+        'upstoxSandboxToken', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'
     ];
     for (const key of allowed) {
-        if (body[key] !== undefined && body[key] !== '') {
+        if (body[key] !== undefined) {
             if (key === 'instrument') {
                 const inst = String(body[key]).toUpperCase();
                 if (['NIFTY', 'SENSEX', 'BOTH'].includes(inst)) appConfig.instrument = inst;
-            } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'].includes(key)) {
+            } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor', 'upstoxAutoOrder'].includes(key)) {
                 appConfig[key] = body[key] === true || body[key] === 'true';
-            } else if (key === 'telegramChatId') {
-                appConfig.telegramChatId = String(body[key]).trim();
+            } else if (['telegramChatId', 'upstoxSandboxToken', 'upstoxToken', 'telegramBotToken'].includes(key)) {
+                if (body[key] !== '') appConfig[key] = String(body[key]).trim();
+            } else if (key === 'upstoxOrderMode') {
+                const m = String(body[key]).toUpperCase();
+                if (['DRY_RUN', 'SANDBOX', 'LIVE'].includes(m)) appConfig.upstoxOrderMode = m;
+            } else if (key === 'upstoxOrderProduct') {
+                const p = String(body[key]).toUpperCase();
+                if (['I', 'D'].includes(p)) appConfig.upstoxOrderProduct = p;
+            } else if (key === 'upstoxOrderLots') {
+                appConfig[key] = Math.max(1, Math.min(50, Number(body[key]) || 1));
             } else {
                 appConfig[key] = body[key];
             }

@@ -251,8 +251,7 @@ async function executeUpstoxOrderSignal(params, config = {}) {
         const orderType = ['MARKET', 'LIMIT'].includes(String(params.orderType || 'MARKET').toUpperCase())
             ? String(params.orderType || 'MARKET').toUpperCase()
             : 'MARKET';
-        const marketOpen = isMarketOpenIST();
-        const isAmo = Boolean(params.isAmo) || !marketOpen;
+        const isAmo = Boolean(params.isAmo);
         const token = config.upstoxToken || '';
         const sandboxToken = config.upstoxSandboxToken || token;
 

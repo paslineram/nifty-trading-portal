@@ -155,7 +155,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Product <select id="upx-ord-product"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
         <label>Order Type <select id="upx-ord-type"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT (LTP)</option></select></label>
         <label>Lots <input type="number" id="upx-ord-lots" value="1" min="1" max="50"></label>
-        <label>AMO (After Market) <select id="upx-ord-amo"><option value="true" selected>Yes (AMO &mdash; Active on Market Close)</option><option value="false">No (Regular Market Hours)</option></select></label>
+        <label>AMO (After Market) <select id="upx-ord-amo"><option value="false" selected>No (Regular Market Hours)</option><option value="true">Yes (AMO)</option></select></label>
         <button id="upx-ord-send-btn" class="btn" style="margin-top:auto">Send Signal to Upstox</button>
         <button type="button" class="btn" style="margin-top:auto;background:var(--up);border-color:var(--up)" onclick="sendSampleSignalToUpstox(this)">Test Latest Signal</button>
       </form>
@@ -297,49 +297,40 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
   </div>
 
   <div id="tab-settings" class="tab-content">
-    <div class="card"><h3>Portal &amp; Broker Settings</h3>
-      <form class="f" style="margin-top:12px" onsubmit="saveSettings(event)">
-        <label>Upstox Access Token <input type="password" id="set-token" placeholder="Paste today's token"></label>
-        <label>Signal Instrument <select id="set-sym"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
-        <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3"></label>
-        <button class="btn" style="margin-top:auto">Save Settings</button>
-      </form>
-      <p id="settings-msg" class="sub" style="margin-top:10px;display:none"></p>
-    </div>
     <div class="card">
       <div class="hd" style="justify-content:space-between">
-        <h3>Telegram Signal Notifications</h3>
-        <span id="settings-tg-badge" class="badge mid">NOT CONFIGURED</span>
-      </div>
-      <p class="sub" style="margin-top:4px">Create a bot via <code>@BotFather</code>, get your Chat/Group ID, and enable real-time alerts for new entries and exits (TP1, SL, TL Break).</p>
-      <form class="f" style="margin-top:12px" onsubmit="saveTelegramSettings(event)">
-        <label>Telegram Bot Token <input type="password" id="tg-token" placeholder="Paste BotFather token (e.g. 123456:ABC...)"></label>
-        <label>Telegram Chat ID <input type="text" id="tg-chatid" placeholder="e.g. 123456789 or -1001234567890"></label>
-        <label>Telegram Alerts <select id="tg-enabled"><option value="true">Enabled</option><option value="false">Paused</option></select></label>
-        <label>Entry Signals <select id="tg-entries"><option value="true">Notify (SELL PE / CE)</option><option value="false">Mute</option></select></label>
-        <label>Exit Alerts <select id="tg-exits"><option value="true">Notify (TP1 / SL / TL Break)</option><option value="false">Mute</option></select></label>
-        <label>Auto Monitor <select id="tg-monitor"><option value="true">30s Background Poll</option><option value="false">Manual / Tab Only</option></select></label>
-        <button id="tg-save-btn" class="btn" style="margin-top:auto">Save Telegram</button>
-        <button type="button" class="btn" style="margin-top:auto;background:var(--px);border-color:var(--px)" onclick="sendTelegramTest(this)">Send Test Alert</button>
-        <button type="button" class="btn" style="margin-top:auto;background:var(--up);border-color:var(--up)" onclick="pushLatestSignalToTelegram(this)">Push Latest Signal</button>
-      </form>
-      <p id="tg-msg" class="sub" style="margin-top:10px;display:none"></p>
-    </div>
-    <div class="card">
-      <div class="hd" style="justify-content:space-between">
-        <h3>Upstox Order Execution &amp; Sandbox</h3>
+        <h3>Portal, Telegram &amp; Order Execution Settings</h3>
         <span id="settings-ord-badge" class="badge mid">DRY_RUN</span>
       </div>
-      <p class="sub" style="margin-top:4px">Configure default Upstox order execution behavior for strategy signals (kept in <b>DRY_RUN</b> / manual unless Auto-Execute is enabled).</p>
-      <form class="f" style="margin-top:12px" onsubmit="saveUpstoxOrderConfig(event)">
+      <p class="sub" style="margin-top:4px">Configure all portal settings, broker tokens, Telegram signal notifications, and order execution rules in one place. Your edits are preserved across tab switches.</p>
+      <form class="f" style="margin-top:14px" onsubmit="saveAllSettings(event)">
+        <div style="width:100%;margin-bottom:6px"><h4>1. Portal &amp; Broker</h4></div>
+        <label>Upstox Access Token <input type="password" id="set-token" placeholder="Paste today's token"></label>
+        <label>Signal Instrument <select id="set-sym"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
+        <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3" min="1" max="10"></label>
+
+        <div style="width:100%;margin:12px 0 6px"><h4>2. Telegram Signal Notifications</h4></div>
+        <label>Telegram Bot Token <input type="password" id="tg-token" placeholder="Paste BotFather token"></label>
+        <label>Telegram Chat ID <input type="text" id="tg-chatid" placeholder="e.g. 123456789 or -100..."></label>
+        <label>Telegram Alerts <select id="tg-enabled"><option value="true">Enabled</option><option value="false">Paused</option></select></label>
+        <label>Entry Signals <select id="tg-entries"><option value="true">Notify Entries</option><option value="false">Mute</option></select></label>
+        <label>Exit Alerts <select id="tg-exits"><option value="true">Notify Exits (TP1/SL/TL)</option><option value="false">Mute</option></select></label>
+        <label>Auto Monitor <select id="tg-monitor"><option value="true">30s Background Poll</option><option value="false">Manual / Tab Only</option></select></label>
+
+        <div style="width:100%;margin:12px 0 6px"><h4>3. Upstox Order Execution &amp; Sandbox</h4></div>
         <label>Default Execution Mode <select id="set-ord-mode"><option value="DRY_RUN">DRY_RUN (Margin &amp; Contract Check)</option><option value="SANDBOX">SANDBOX (Upstox Sandbox)</option><option value="LIVE">LIVE (Upstox HFT Production)</option></select></label>
-        <label>Auto-Execute New Signals <select id="set-ord-auto"><option value="false">OFF (Manual Check / Click Only)</option><option value="true">ON (Auto-Send New Signals)</option></select></label>
+        <label>Auto-Execute Signals <select id="set-ord-auto"><option value="false">OFF (Manual Check / Click Only)</option><option value="true">ON (Auto-Send New Signals)</option></select></label>
         <label>Default Product <select id="set-ord-prod"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
         <label>Default Lots <input type="number" id="set-ord-lots" value="1" min="1" max="50"></label>
         <label>Upstox Sandbox Token <input type="password" id="set-sandbox-token" placeholder="Optional Sandbox API token"></label>
-        <button id="set-ord-btn" class="btn" style="margin-top:auto">Save Order Config</button>
+
+        <div style="width:100%;display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
+          <button id="set-save-all-btn" class="btn" style="flex:1;min-width:200px">Save All Settings</button>
+          <button type="button" class="btn" style="background:var(--px);border-color:var(--px)" onclick="sendTelegramTest(this)">Test Telegram</button>
+          <button type="button" class="btn" style="background:var(--up);border-color:var(--up)" onclick="pushLatestSignalToTelegram(this)">Push Latest Signal</button>
+        </div>
       </form>
-      <p id="set-ord-msg" class="sub" style="margin-top:10px;display:none"></p>
+      <p id="settings-msg" class="sub" style="margin-top:10px;display:none"></p>
     </div>
     <div id="settings-result" class="card" style="display:none">
       <div class="hd" style="justify-content:space-between">
@@ -1644,19 +1635,25 @@ function renderSettingsResult(data) {
   const tg = data.telegram || {};
   const p = upx.profile;
 
-  if (cfg.instrument) document.getElementById('set-sym').value = cfg.instrument;
-  if (cfg.maxTrades != null) document.getElementById('set-maxtrades').value = cfg.maxTrades;
-  if (document.getElementById('tg-chatid') && cfg.telegramChatId !== undefined) {
-    document.getElementById('tg-chatid').value = cfg.telegramChatId || '';
-  }
-  if (document.getElementById('tg-enabled')) document.getElementById('tg-enabled').value = String(Boolean(cfg.telegramEnabled));
-  if (document.getElementById('tg-entries')) document.getElementById('tg-entries').value = String(cfg.telegramNotifyEntries !== false);
-  if (document.getElementById('tg-exits')) document.getElementById('tg-exits').value = String(cfg.telegramNotifyExits !== false);
-  if (document.getElementById('tg-monitor')) document.getElementById('tg-monitor').value = String(cfg.telegramAutoMonitor !== false);
-  if (document.getElementById('set-ord-mode') && cfg.upstoxOrderMode) document.getElementById('set-ord-mode').value = cfg.upstoxOrderMode;
-  if (document.getElementById('set-ord-auto')) document.getElementById('set-ord-auto').value = String(Boolean(cfg.upstoxAutoOrder));
-  if (document.getElementById('set-ord-prod') && cfg.upstoxOrderProduct) document.getElementById('set-ord-prod').value = cfg.upstoxOrderProduct;
-  if (document.getElementById('set-ord-lots') && cfg.upstoxOrderLots) document.getElementById('set-ord-lots').value = cfg.upstoxOrderLots;
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && document.activeElement !== el && val !== undefined && val !== null) {
+      el.value = val;
+    }
+  };
+
+  if (cfg.instrument) setVal('set-sym', cfg.instrument);
+  if (cfg.maxTrades != null) setVal('set-maxtrades', cfg.maxTrades);
+  setVal('tg-chatid', cfg.telegramChatId || '');
+  setVal('tg-enabled', String(Boolean(cfg.telegramEnabled)));
+  setVal('tg-entries', String(cfg.telegramNotifyEntries !== false));
+  setVal('tg-exits', String(cfg.telegramNotifyExits !== false));
+  setVal('tg-monitor', String(cfg.telegramAutoMonitor !== false));
+  setVal('set-ord-mode', cfg.upstoxOrderMode || 'DRY_RUN');
+  setVal('set-ord-auto', String(Boolean(cfg.upstoxAutoOrder)));
+  setVal('set-ord-prod', cfg.upstoxOrderProduct || 'I');
+  setVal('set-ord-lots', cfg.upstoxOrderLots || 1);
+
   const ordBadge = document.getElementById('settings-ord-badge');
   if (ordBadge) {
     ordBadge.className = `badge ${cfg.upstoxOrderMode === 'LIVE' ? 'dn' : cfg.upstoxOrderMode === 'SANDBOX' ? 'up' : 'mid'}`;
@@ -1705,11 +1702,7 @@ function renderSettingsResult(data) {
       <tr><td>Max Trades / Day</td><td>${escHtml(cfg.maxTrades)}</td></tr>
       <tr><td>Telegram Alerts</td><td><b>${cfg.telegramEnabled ? 'Enabled' : 'Paused'}</b> (${tg.verified && tg.bot?.username ? '@' + escHtml(tg.bot.username) : (cfg.hasTelegramToken ? 'Token set' : 'Token not set')})</td></tr>
       <tr><td>Telegram Chat ID</td><td><code>${escHtml(cfg.telegramChatId || 'Not set')}</code></td></tr>
-      <tr><td>Telegram Token</td><td><code>${escHtml(cfg.hasTelegramToken ? cfg.telegramTokenMasked : 'Not set')}</code></td></tr>
-      <tr><td>Lot Size</td><td>${escHtml(cfg.lotSize)}</td></tr>
-      <tr><td>Action Type</td><td>${escHtml(cfg.actionType)}</td></tr>
-      <tr><td>OB Max Age</td><td>${escHtml(cfg.obMaxAge)}</td></tr>
-      <tr><td>Impulse ATR</td><td>${escHtml(cfg.impATR)}</td></tr>
+      <tr><td>Order Execution Mode</td><td><b>${escHtml(cfg.upstoxOrderMode || 'DRY_RUN')}</b> (${cfg.upstoxAutoOrder ? 'Auto-Execute ON' : 'Manual'})</td></tr>
       <tr><td>Saved At</td><td>${escHtml(data.savedAt || '-')}</td></tr>
     </table>
   </div>`;
@@ -1729,35 +1722,71 @@ async function loadSettings() {
   } catch (_) {}
 }
 
-async function saveSettings(e) {
+async function saveAllSettings(e) {
   e.preventDefault();
   const msg = document.getElementById('settings-msg');
-  msg.style.display = 'block';
-  msg.className = 'sub';
-  msg.textContent = 'Saving settings & checking Upstox credentials…';
+  const btn = document.getElementById('set-save-all-btn');
+  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = 'Saving all settings & verifying tokens…'; }
+  if (btn) btn.disabled = true;
 
-  const body = {instrument: document.getElementById('set-sym').value, maxTrades: +document.getElementById('set-maxtrades').value};
+  const body = {
+    instrument: document.getElementById('set-sym').value,
+    maxTrades: +document.getElementById('set-maxtrades').value || 3,
+    telegramChatId: document.getElementById('tg-chatid').value.trim(),
+    telegramEnabled: document.getElementById('tg-enabled').value === 'true',
+    telegramNotifyEntries: document.getElementById('tg-entries').value === 'true',
+    telegramNotifyExits: document.getElementById('tg-exits').value === 'true',
+    telegramAutoMonitor: document.getElementById('tg-monitor').value === 'true',
+    upstoxOrderMode: document.getElementById('set-ord-mode').value,
+    upstoxAutoOrder: document.getElementById('set-ord-auto').value === 'true',
+    upstoxOrderProduct: document.getElementById('set-ord-prod').value,
+    upstoxOrderLots: +document.getElementById('set-ord-lots').value || 1
+  };
+
   const tok = document.getElementById('set-token').value.trim();
   if (tok) body.upstoxToken = tok;
+
+  const tgTok = document.getElementById('tg-token').value.trim();
+  if (tgTok) body.telegramBotToken = tgTok;
+
+  const sTok = document.getElementById('set-sandbox-token').value.trim();
+  if (sTok) body.upstoxSandboxToken = sTok;
+
   try {
-    const resp = await fetch('/api/settings', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
     const data = await resp.json();
     if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to save settings');
     document.getElementById('set-token').value = '';
+    document.getElementById('tg-token').value = '';
+    document.getElementById('set-sandbox-token').value = '';
+
+    const parts = ['All settings saved successfully'];
     if (data.upstox?.verified) {
-      msg.className = 'upt';
-      msg.textContent = `Settings saved and Upstox credentials verified (id: ${data.upstox.profile?.id || '-'}).`;
+      parts.push(`Upstox verified (@${data.upstox.profile?.user_id || 'OK'})`);
     } else if (data.appConfig?.hasUpstoxToken && data.upstox?.error) {
-      msg.className = 'mid';
-      msg.textContent = `Settings saved, but Upstox verification returned: ${data.upstox.error}`;
-    } else {
+      parts.push(`Upstox warning: ${data.upstox.error}`);
+    }
+    if (data.telegram?.verified) {
+      parts.push(`Telegram verified (@${data.telegram.bot?.username || 'bot'})`);
+    }
+
+    if (msg) {
       msg.className = 'upt';
-      msg.textContent = 'Settings saved successfully.';
+      msg.textContent = parts.join(' · ') + '.';
     }
     renderSettingsResult(data);
+    loadTelegramStatus();
   } catch (err) {
-    msg.className = 'dnt';
-    msg.textContent = err.message || 'Could not save settings.';
+    if (msg) {
+      msg.className = 'dnt';
+      msg.textContent = err.message || 'Could not save settings.';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 </script>
