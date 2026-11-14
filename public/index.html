@@ -168,6 +168,27 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListe
   if (btn.dataset.tab === 'settings') loadSettings();
 }));
 
+let nextRefreshIn = 30;
+let liveInFlight = false;
+let hasLiveData = false;
+let lastLiveAtMs = 0;
+
+function isLiveTabVisible() {
+  return document.getElementById('portal-container').style.display === 'block'
+    && document.getElementById('tab-dashboard').classList.contains('active')
+    && !document.hidden;
+}
+
+function updateRefreshStatus() {
+  const el = document.getElementById('live-refresh-status');
+  if (!el) return;
+  if (liveInFlight) {
+    el.textContent = 'Refreshing from Upstox…';
+  } else {
+    el.textContent = `Auto-refresh in ${Math.max(0, nextRefreshIn)}s`;
+  }
+}
+
 async function handleLogin() {
   const username = document.getElementById('login-user').value.trim();
   const password = document.getElementById('login-pass').value.trim();
@@ -192,27 +213,6 @@ function handleLogout() {
 }
 try { if (localStorage.getItem('paslinAuth') === '1') showPortal(); } catch (_) {}
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
-
-let nextRefreshIn = 30;
-let liveInFlight = false;
-let hasLiveData = false;
-let lastLiveAtMs = 0;
-
-function isLiveTabVisible() {
-  return document.getElementById('portal-container').style.display === 'block'
-    && document.getElementById('tab-dashboard').classList.contains('active')
-    && !document.hidden;
-}
-
-function updateRefreshStatus() {
-  const el = document.getElementById('live-refresh-status');
-  if (!el) return;
-  if (liveInFlight) {
-    el.textContent = 'Refreshing from Upstox…';
-  } else {
-    el.textContent = `Auto-refresh in ${Math.max(0, nextRefreshIn)}s`;
-  }
-}
 
 function tick() {
   const d = new Date();
