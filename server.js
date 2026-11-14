@@ -47,11 +47,11 @@ function marketSnapshot() {
                 bias: 'BEARISH - SELL CE / BUY PE',
                 supertrend: 'DOWN', hmaSlope: 'UP', adx: 28, atr: 34.8, paperPts: -30,
                 sideways: { score: 0, total: 6, checks: [
-                    { pass: false, name: 'Wide CPR', note: 'width 0.09% vs 20-day median 0.30%' },
+                    { pass: false, name: 'Wide CPR (range-day sign)', note: 'CPR width 0.09% vs 20-day median 0.30%' },
                     { pass: false, name: 'Weak trend (ADX < 22)', note: 'ADX 28' },
-                    { pass: false, name: 'Price between S1 & R1', note: '25,144 OUTSIDE 25,167 - 25,408' },
+                    { pass: false, name: 'Price between S1 and R1', note: '25,144 OUTSIDE 25,167 - 25,408' },
                     { pass: false, name: 'No big gap at open', note: 'gap 0.35%' },
-                    { pass: false, name: 'HMA flat', note: 'moved 16 pts in 4 bars' },
+                    { pass: false, name: 'HMA flat', note: 'HMA moved 16 pts in 4 bars' },
                     { pass: false, name: 'Small range so far', note: 'today 192 pts vs yesterday 242' }
                 ]},
                 chain: { pcrAtm: 0.82, pcrTotal: 0.83, putWall: 25000, callWall: 25500, maxPain: 25100,
@@ -72,9 +72,9 @@ function marketSnapshot() {
                 ],
                 composite: { score: -2, text: 'SELL CE side (bearish)' },
                 levels: [
-                    { name: 'R2', v: 25518 }, { name: 'R1', v: 25408 }, { name: 'CPR top', v: 25288 },
-                    { name: 'Pivot', v: 25276 }, { name: 'CPR bot', v: 25264 }, { name: 'S1', v: 25167 },
-                    { name: 'Prev Low', v: 25143 }
+                    { name: 'R2', v: 25518 }, { name: 'R1', v: 25408, diff: 264 }, { name: 'CPR top', v: 25288, diff: 143 },
+                    { name: 'Pivot', v: 25276, diff: 131 }, { name: 'CPR bot', v: 25264 }, { name: 'S1', v: 25167, diff: 22 },
+                    { name: 'Prev Low', v: 25143, diff: -1 }
                 ],
                 why: {
                     pe: 'price on wrong side of CPR; Supertrend points other way; 1-hour trend against it.',
@@ -89,12 +89,12 @@ function marketSnapshot() {
                 bias: 'BEARISH - SELL CE / BUY PE',
                 supertrend: 'DOWN', hmaSlope: 'UP', adx: 27, atr: 107.1, paperPts: -112,
                 sideways: { score: 2, total: 6, checks: [
-                    { pass: false, name: 'Wide CPR', note: 'width 0.03% vs median 0.29%' },
+                    { pass: false, name: 'Wide CPR', note: 'CPR width 0.03%' },
                     { pass: false, name: 'Weak trend', note: 'ADX 27' },
-                    { pass: true, name: 'Price between S1 & R1', note: '81,592 inside 81,550 - 82,299' },
+                    { pass: true, name: 'Price between S1 and R1', note: '81,592 inside' },
                     { pass: true, name: 'No big gap at open', note: 'gap 0.09%' },
-                    { pass: false, name: 'HMA flat', note: 'moved 74 pts in 4 bars' },
-                    { pass: false, name: 'Small range so far', note: '591 pts vs yesterday 749' }
+                    { pass: false, name: 'HMA flat', note: 'moved 74 pts' },
+                    { pass: false, name: 'Small range so far', note: '591 pts' }
                 ]},
                 chain: { pcrAtm: 0.83, pcrTotal: 0.91, putWall: 81500, callWall: 81500, maxPain: 81500,
                     expiry: '2026-11-19',

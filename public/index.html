@@ -41,7 +41,7 @@ button.btn:hover{background:var(--accent-hover)}
 #login-container{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:9999}
 .login-card{background:var(--card);padding:24px;border-radius:10px;border:1px solid var(--bd);width:100%;max-width:360px;box-shadow:0 10px 25px rgba(0,0,0,.08)}
 
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:stretch}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
 @media(max-width:900px){.pair{grid-template-columns:1fr}}
 .pair>.card{margin:0}
 .stack{display:flex;flex-direction:column;gap:12px;margin:10px 0}
@@ -130,6 +130,7 @@ table.kv td:first-child{white-space:nowrap}
 
 <script>
 const fmt = n => Number(n).toLocaleString('en-IN', {maximumFractionDigits: 2});
+const fmt2 = n => Number(n).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const cls = n => n < 0 ? 'dnt' : 'upt';
 const voteCls = v => v === 'BULL' ? 'upt' : v === 'BEAR' ? 'dnt' : 'midt';
 
@@ -185,15 +186,18 @@ let MKT = null, DETAIL = 'NIFTY';
 function levelsChart(d) {
   const vals = d.levels.map(l => l.v).concat(d.price);
   const hi = Math.max(...vals), lo = Math.min(...vals), pad = (hi - lo) * 0.08;
-  const y = v => 15 + (1 - (v - (lo - pad)) / ((hi + pad) - (lo - pad))) * 210;
+  const y = v => 15 + (1 - (v - (lo - pad)) / ((hi + pad) - (lo - pad))) * 190;
+  const items = d.levels.map(l => ({...l, y: y(l.v), ly: y(l.v)})).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < items.length; i++) if (items[i].ly - items[i - 1].ly < 11) items[i].ly = items[i - 1].ly + 11;
   let t = '';
-  d.levels.forEach(l => {
+  items.forEach(l => {
     const sup = /^S|Low/.test(l.name), cpr = /CPR|Pivot/.test(l.name);
     const c = cpr ? 'var(--px)' : sup ? 'var(--up)' : 'var(--dn)';
-    t += `<line x1="30" y1="${y(l.v)}" x2="400" y2="${y(l.v)}" stroke="${c}" stroke-dasharray="${cpr ? 2 : 4}"/><text x="405" y="${y(l.v) + 3}" font-size="9" fill="${c}">${l.name} ${fmt(l.v)}</text>`;
+    t += `<line x1="30" y1="${l.y}" x2="395" y2="${l.y}" stroke="${c}" stroke-dasharray="${cpr ? 2 : 4}"/><text x="400" y="${l.ly + 3}" font-size="9" fill="${c}">${l.name} ${fmt(l.v)}</text>`;
   });
-  t += `<line x1="30" y1="${y(d.price)}" x2="400" y2="${y(d.price)}" stroke="var(--fg)" stroke-width="1.5"/><text x="30" y="${y(d.price) - 4}" font-size="10" font-weight="700">LTP ${fmt(d.price)}</text>`;
-  return `<svg viewBox="0 0 500 240" class="chart">${t}</svg>`;
+  const py = y(d.price);
+  t += `<line x1="30" y1="${py}" x2="395" y2="${py}" stroke="var(--fg)" stroke-width="1.5"/><text x="34" y="${py - 4}" font-size="10" font-weight="700">LTP ${fmt2(d.price)}</text>`;
+  return `<svg viewBox="0 0 500 220" class="chart">${t}</svg>`;
 }
 function oiChart(ladder) {
   const mx = Math.max(...ladder.flatMap(r => [r.call, r.put]));
@@ -207,9 +211,9 @@ function oiChart(ladder) {
 
 function headerCard(d, asOf, open) {
   return `<div class="card" style="margin:10px 0">
-    <div class="hd"><h3>${d.key} <span class="big">${fmt(d.price)}</span> <span class="${cls(d.change)}">${d.change > 0 ? '+' : ''}${d.change} (${d.changePct}%)</span></h3>
+    <div class="hd"><h3>${d.key} <span class="big">${fmt2(d.price)}</span> <span class="${cls(d.change)}">${d.change > 0 ? '+' : ''}${d.change.toFixed(1)} (${d.changePct}%)</span></h3>
       <span class="badge ${d.composite.score < 0 ? 'dn' : d.composite.score > 0 ? 'up' : 'mid'}">${d.bias.replace(' / ', '/ ')} side</span></div>
-    <p class="sub" style="margin-top:3px">Signals and indicators use the last completed ${asOf.replace(/^15-min bar: /, '15-min bar: ')} (close ${fmt(d.price)})${open ? '' : ' &middot; market closed'}</p>
+    <p class="sub" style="margin-top:3px">Signals and indicators use the last completed ${asOf.replace(/^15-min bar: /, '15-min bar: ')} (close ${fmt2(d.price)})${open ? '' : ' &middot; market closed'}</p>
     <div class="stats">
       <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : 'dnt'}">${d.supertrend}</b></div>
       <div><small>HMA slope</small><b class="${d.hmaSlope === 'UP' ? 'upt' : 'dnt'}">${d.hmaSlope}</b></div>
@@ -253,7 +257,7 @@ function levelsCard(d) {
   const rows = d.levels.filter(l => l.name !== 'R2' && l.name !== 'CPR bot');
   return `<div class="card"><h4>Levels vs price (${d.key})</h4>
     ${levelsChart(d)}
-    <table class="kv">${rows.map(l => { const diff = Math.round(l.v - d.price); return `<tr><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${diff < 0 ? 'dnt' : 'upt'}">${diff > 0 ? '+' : ''}${diff}</td></tr>`; }).join('')}</table></div>`;
+    <table class="kv">${rows.map(l => { const diff = l.diff !== undefined ? l.diff : Math.round(l.v - d.price); return `<tr><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${diff < 0 ? 'dnt' : 'upt'}">${diff > 0 ? '+' : ''}${diff}</td></tr>`; }).join('')}</table></div>`;
 }
 
 function signalsCard(d) {
