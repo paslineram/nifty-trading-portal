@@ -49,6 +49,7 @@ let appConfig = {
 };
 
 let botState = { status: 'Idle', lastSignal: 'None', tradesToday: 0, currentPnL: 0.0, gammaEnv: 'Neutral', distanceToWall: 145.5 };
+let settingsSavedAt = null;
 
 function getWritableDataDir(subName = 'nifty_portal_data') {
     try {
@@ -74,7 +75,17 @@ function loadAppConfig() {
             const raw = fs.readFileSync(CONFIG_FILE, 'utf8');
             const parsed = JSON.parse(raw);
             if (parsed && typeof parsed === 'object') {
-                appConfig = { ...appConfig, ...parsed };
+                if (parsed.settingsSavedAt) settingsSavedAt = parsed.settingsSavedAt;
+                const { settingsSavedAt: _savedAt, ...cfgFields } = parsed;
+                for (const [k, v] of Object.entries(cfgFields)) {
+                    if (v === undefined || v === null) continue;
+                    if (['upstoxToken', 'telegramBotToken', 'telegramChatId', 'upstoxSandboxToken'].includes(k)) {
+                        const s = String(v).trim();
+                        if (s !== '') appConfig[k] = s;
+                    } else {
+                        appConfig[k] = v;
+                    }
+                }
             }
         }
     } catch (_) {}
@@ -83,7 +94,7 @@ function loadAppConfig() {
 function saveAppConfig() {
     try {
         if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(appConfig, null, 2), 'utf8');
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...appConfig, settingsSavedAt }, null, 2), 'utf8');
     } catch (_) {}
 }
 
@@ -200,7 +211,6 @@ let telegramBotState = {
     error: null,
     checkedAt: null
 };
-let settingsSavedAt = null;
 
 function maskToken(tok) {
     if (!tok) return '';
@@ -269,6 +279,7 @@ async function fetchUpstoxProfile(token) {
 }
 
 app.get('/api/settings', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     if (appConfig.upstoxToken && !upstoxState.checkedAt) {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
@@ -298,8 +309,10 @@ app.post('/api/settings', async (req, res) => {
                 if (['NIFTY', 'SENSEX', 'BOTH'].includes(inst)) appConfig.instrument = inst;
             } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor', 'upstoxAutoOrder'].includes(key)) {
                 appConfig[key] = body[key] === true || body[key] === 'true';
-            } else if (['telegramChatId', 'upstoxSandboxToken', 'upstoxToken', 'telegramBotToken'].includes(key)) {
+            } else if (['upstoxSandboxToken', 'upstoxToken', 'telegramBotToken'].includes(key)) {
                 if (body[key] !== '') appConfig[key] = String(body[key]).trim();
+            } else if (key === 'telegramChatId') {
+                appConfig.telegramChatId = String(body[key]).trim();
             } else if (key === 'upstoxOrderMode') {
                 const m = String(body[key]).toUpperCase();
                 if (['DRY_RUN', 'SANDBOX', 'LIVE'].includes(m)) appConfig.upstoxOrderMode = m;
@@ -314,6 +327,7 @@ app.post('/api/settings', async (req, res) => {
         }
     }
     settingsSavedAt = new Date().toISOString();
+    saveAppConfig();
     clearMarketCache();
 
     if (body.upstoxToken || (appConfig.upstoxToken && !upstoxState.verified)) {
@@ -333,6 +347,7 @@ app.post('/api/settings', async (req, res) => {
 });
 
 app.get('/api/dashboard', (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     const entries = loadJournalEntries();
     res.json({ botState, appConfig: getSafeConfig(), tradeHistory: entries });
 });
@@ -616,6 +631,7 @@ app.post('/api/upstox/order-config', (req, res) => {
         appConfig.upstoxOrderLots = Math.max(1, Math.min(50, Number(body.upstoxOrderLots) || 1));
     }
     settingsSavedAt = new Date().toISOString();
+    saveAppConfig();
     res.json({
         success: true,
         savedAt: settingsSavedAt,

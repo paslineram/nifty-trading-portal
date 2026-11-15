@@ -389,6 +389,108 @@ function updateRefreshStatus() {
   });
 }
 
+const SETTINGS_STORAGE_KEY = 'paslinSavedSettings';
+const SETTINGS_DRAFT_KEY = 'paslinSettingsDraft';
+const SETTINGS_FIELD_IDS = [
+  'set-token', 'set-sym', 'set-maxtrades',
+  'tg-token', 'tg-chatid', 'tg-enabled', 'tg-entries', 'tg-exits', 'tg-monitor',
+  'set-ord-mode', 'set-ord-auto', 'set-ord-prod', 'set-ord-lots', 'set-sandbox-token'
+];
+const dirtySettingsFields = new Set();
+let settingsHydratedFromServer = false;
+let settingsAutoSyncedOnce = false;
+
+function readSavedSettingsStore() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeSavedSettingsStore(patch) {
+  try {
+    const cur = readSavedSettingsStore();
+    const next = { ...cur, ...patch };
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+  } catch (_) {}
+}
+
+function readDraftStore() {
+  try {
+    const raw = sessionStorage.getItem(SETTINGS_DRAFT_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeDraftStore() {
+  try {
+    const draft = {};
+    dirtySettingsFields.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) draft[id] = el.value;
+    });
+    sessionStorage.setItem(SETTINGS_DRAFT_KEY, JSON.stringify(draft));
+  } catch (_) {}
+}
+
+function clearDraftStore() {
+  try { sessionStorage.removeItem(SETTINGS_DRAFT_KEY); } catch (_) {}
+}
+
+function bindSettingsDirtyListeners() {
+  SETTINGS_FIELD_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.dirtyBound) return;
+    el.dataset.dirtyBound = '1';
+    const markDirty = () => {
+      dirtySettingsFields.add(id);
+      writeDraftStore();
+    };
+    el.addEventListener('input', markDirty);
+    el.addEventListener('change', markDirty);
+  });
+}
+
+function restoreSettingsInputsFromBrowser() {
+  const saved = readSavedSettingsStore();
+  const map = {
+    'set-token': saved.upstoxToken,
+    'set-sym': saved.instrument,
+    'set-maxtrades': saved.maxTrades,
+    'tg-token': saved.telegramBotToken,
+    'tg-chatid': saved.telegramChatId,
+    'tg-enabled': saved.telegramEnabled !== undefined ? String(Boolean(saved.telegramEnabled)) : undefined,
+    'tg-entries': saved.telegramNotifyEntries !== undefined ? String(Boolean(saved.telegramNotifyEntries)) : undefined,
+    'tg-exits': saved.telegramNotifyExits !== undefined ? String(Boolean(saved.telegramNotifyExits)) : undefined,
+    'tg-monitor': saved.telegramAutoMonitor !== undefined ? String(Boolean(saved.telegramAutoMonitor)) : undefined,
+    'set-ord-mode': saved.upstoxOrderMode,
+    'set-ord-auto': saved.upstoxAutoOrder !== undefined ? String(Boolean(saved.upstoxAutoOrder)) : undefined,
+    'set-ord-prod': saved.upstoxOrderProduct,
+    'set-ord-lots': saved.upstoxOrderLots,
+    'set-sandbox-token': saved.upstoxSandboxToken
+  };
+  Object.entries(map).forEach(([id, val]) => {
+    if (val === undefined || val === null || val === '') return;
+    const el = document.getElementById(id);
+    if (el && !dirtySettingsFields.has(id)) el.value = val;
+  });
+
+  const draft = readDraftStore();
+  Object.entries(draft).forEach(([id, val]) => {
+    const el = document.getElementById(id);
+    if (el && val !== undefined && val !== null) {
+      el.value = val;
+      dirtySettingsFields.add(id);
+    }
+  });
+}
+
 async function handleLogin() {
   const username = document.getElementById('login-user').value.trim();
   const password = document.getElementById('login-pass').value.trim();
@@ -404,10 +506,24 @@ async function handleLogin() {
 function showPortal() {
   document.getElementById('login-container').style.display = 'none';
   document.getElementById('portal-container').style.display = 'block';
+  bindSettingsDirtyListeners();
+  restoreSettingsInputsFromBrowser();
+  loadSettings();
   loadLive();
 }
 function handleLogout() {
-  try { localStorage.removeItem('paslinAuth'); } catch (_) {}
+  try {
+    localStorage.removeItem('paslinAuth');
+    localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    clearDraftStore();
+  } catch (_) {}
+  dirtySettingsFields.clear();
+  settingsHydratedFromServer = false;
+  settingsAutoSyncedOnce = false;
+  ['set-token', 'tg-token', 'set-sandbox-token', 'tg-chatid'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
   document.getElementById('portal-container').style.display = 'none';
   document.getElementById('login-container').style.display = 'flex';
 }
@@ -1271,7 +1387,7 @@ function renderTelegramLogSection(data) {
     info.innerHTML = parts.join(' &middot; ');
   }
 
-  if (logsEl) {
+  if (logsEl && data.state) {
     const logs = st.logs || [];
     if (!logs.length) {
       logsEl.innerHTML = '<p class="sub">No Telegram alerts dispatched yet. Historical signals on boot are baselined automatically so only new live signals alert you — or click <b>Push Latest Signal</b> / <b>Send Test Alert</b> above.</p>';
@@ -1341,7 +1457,12 @@ async function saveTelegramSettings(e) {
     });
     const data = await resp.json();
     if (!resp.ok || !data.success) throw new Error(data.error || 'Failed to save Telegram settings');
-    document.getElementById('tg-token').value = '';
+    ['tg-token', 'tg-chatid', 'tg-enabled', 'tg-entries', 'tg-exits', 'tg-monitor'].forEach(id => dirtySettingsFields.delete(id));
+    writeDraftStore();
+    writeSavedSettingsStore({
+      ...body,
+      ...(tok ? { telegramBotToken: tok } : {})
+    });
     if (data.telegram?.verified) {
       showTgActionMsg(`Telegram bot @${data.telegram.bot?.username || 'bot'} verified and saved.`, 'upt');
     } else if (data.appConfig?.hasTelegramToken && data.telegram?.error) {
@@ -1609,7 +1730,12 @@ async function saveUpstoxOrderConfig(e) {
     });
     const data = await r.json();
     if (!r.ok || !data.success) throw new Error(data.error || 'Failed to save order config');
-    document.getElementById('set-sandbox-token').value = '';
+    ['set-ord-mode', 'set-ord-auto', 'set-ord-prod', 'set-ord-lots', 'set-sandbox-token'].forEach(id => dirtySettingsFields.delete(id));
+    writeDraftStore();
+    writeSavedSettingsStore({
+      ...body,
+      ...(sTok ? { upstoxSandboxToken: sTok } : {})
+    });
     if (msg) {
       msg.className = 'upt';
       msg.textContent = `Order config saved: ${data.appConfig.upstoxOrderMode} · Auto-Execute ${data.appConfig.upstoxAutoOrder ? 'ON' : 'OFF'}.`;
@@ -1630,14 +1756,16 @@ function renderSettingsResult(data) {
     box.style.display = 'none';
     return;
   }
+  settingsHydratedFromServer = true;
   const cfg = data.appConfig;
   const upx = data.upstox || {};
   const tg = data.telegram || {};
   const p = upx.profile;
+  const saved = readSavedSettingsStore();
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
-    if (el && document.activeElement !== el && val !== undefined && val !== null) {
+    if (el && !dirtySettingsFields.has(id) && document.activeElement !== el && val !== undefined && val !== null) {
       el.value = val;
     }
   };
@@ -1653,6 +1781,18 @@ function renderSettingsResult(data) {
   setVal('set-ord-auto', String(Boolean(cfg.upstoxAutoOrder)));
   setVal('set-ord-prod', cfg.upstoxOrderProduct || 'I');
   setVal('set-ord-lots', cfg.upstoxOrderLots || 1);
+
+  const syncTokenField = (id, hasToken, masked, savedTok, fallbackPlaceholder) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.placeholder = hasToken ? `Saved (${masked}) — paste new token to replace` : fallbackPlaceholder;
+    if (!dirtySettingsFields.has(id) && document.activeElement !== el && !el.value && hasToken && savedTok) {
+      el.value = savedTok;
+    }
+  };
+  syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, saved.upstoxToken, "Paste today's token");
+  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, saved.telegramBotToken, 'Paste BotFather token');
+  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, saved.upstoxSandboxToken, 'Optional Sandbox API token');
 
   const ordBadge = document.getElementById('settings-ord-badge');
   if (ordBadge) {
@@ -1715,9 +1855,43 @@ function renderSettingsResult(data) {
 
 async function loadSettings() {
   try {
-    const r = await fetch('/api/settings');
+    const r = await fetch(`/api/settings?ts=${Date.now()}`, { cache: 'no-store' });
     if (!r.ok) return;
-    const data = await r.json();
+    let data = await r.json();
+
+    const cfg = data?.appConfig || {};
+    const saved = readSavedSettingsStore();
+    if (!settingsAutoSyncedOnce && Object.keys(saved).length) {
+      const patch = {};
+      if (!cfg.hasUpstoxToken && saved.upstoxToken) patch.upstoxToken = saved.upstoxToken;
+      if (!cfg.hasTelegramToken && saved.telegramBotToken) patch.telegramBotToken = saved.telegramBotToken;
+      if (!cfg.telegramChatId && saved.telegramChatId) patch.telegramChatId = saved.telegramChatId;
+      if (!cfg.hasUpstoxSandboxToken && saved.upstoxSandboxToken) patch.upstoxSandboxToken = saved.upstoxSandboxToken;
+      if (Object.keys(patch).length) {
+        settingsAutoSyncedOnce = true;
+        if (saved.instrument) patch.instrument = saved.instrument;
+        if (saved.maxTrades != null) patch.maxTrades = saved.maxTrades;
+        if (saved.telegramEnabled !== undefined) patch.telegramEnabled = saved.telegramEnabled;
+        if (saved.telegramNotifyEntries !== undefined) patch.telegramNotifyEntries = saved.telegramNotifyEntries;
+        if (saved.telegramNotifyExits !== undefined) patch.telegramNotifyExits = saved.telegramNotifyExits;
+        if (saved.telegramAutoMonitor !== undefined) patch.telegramAutoMonitor = saved.telegramAutoMonitor;
+        if (saved.upstoxOrderMode) patch.upstoxOrderMode = saved.upstoxOrderMode;
+        if (saved.upstoxAutoOrder !== undefined) patch.upstoxAutoOrder = saved.upstoxAutoOrder;
+        if (saved.upstoxOrderProduct) patch.upstoxOrderProduct = saved.upstoxOrderProduct;
+        if (saved.upstoxOrderLots != null) patch.upstoxOrderLots = saved.upstoxOrderLots;
+        const syncResp = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch)
+        });
+        if (syncResp.ok) {
+          data = await syncResp.json();
+          loadLive(true);
+          loadTelegramStatus();
+        }
+      }
+    }
+
     renderSettingsResult(data);
   } catch (_) {}
 }
@@ -1729,10 +1903,10 @@ async function saveAllSettings(e) {
   if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = 'Saving all settings & verifying tokens…'; }
   if (btn) btn.disabled = true;
 
+  const chatIdVal = document.getElementById('tg-chatid').value.trim();
   const body = {
     instrument: document.getElementById('set-sym').value,
     maxTrades: +document.getElementById('set-maxtrades').value || 3,
-    telegramChatId: document.getElementById('tg-chatid').value.trim(),
     telegramEnabled: document.getElementById('tg-enabled').value === 'true',
     telegramNotifyEntries: document.getElementById('tg-entries').value === 'true',
     telegramNotifyExits: document.getElementById('tg-exits').value === 'true',
@@ -1742,6 +1916,9 @@ async function saveAllSettings(e) {
     upstoxOrderProduct: document.getElementById('set-ord-prod').value,
     upstoxOrderLots: +document.getElementById('set-ord-lots').value || 1
   };
+  if (settingsHydratedFromServer || dirtySettingsFields.has('tg-chatid') || chatIdVal !== '') {
+    body.telegramChatId = chatIdVal;
+  }
 
   const tok = document.getElementById('set-token').value.trim();
   if (tok) body.upstoxToken = tok;
@@ -1760,9 +1937,10 @@ async function saveAllSettings(e) {
     });
     const data = await resp.json();
     if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to save settings');
-    document.getElementById('set-token').value = '';
-    document.getElementById('tg-token').value = '';
-    document.getElementById('set-sandbox-token').value = '';
+
+    dirtySettingsFields.clear();
+    clearDraftStore();
+    writeSavedSettingsStore(body);
 
     const parts = ['All settings saved successfully'];
     if (data.upstox?.verified) {
@@ -1780,6 +1958,7 @@ async function saveAllSettings(e) {
     }
     renderSettingsResult(data);
     loadTelegramStatus();
+    if (tok) loadLive(true);
   } catch (err) {
     if (msg) {
       msg.className = 'dnt';
