@@ -80,6 +80,38 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 .kv-row:last-child{border-bottom:0}
 .xray-svg-wrap{position:relative;border:1px solid var(--bd);border-radius:8px;background:var(--card);overflow:hidden}
 .xray-tooltip{display:flex;flex-wrap:wrap;gap:10px;font-size:11px;color:var(--mut);padding:5px 8px;background:var(--bg);border-top:1px solid var(--bd);min-height:26px;align-items:center}
+.num{font-variant-numeric:tabular-nums}
+.xr-pulse{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}
+.xr-pulse-tile{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px 12px}
+.xr-pulse-lbl{font-size:11px;color:var(--mut);font-weight:600;margin-bottom:4px}
+.xr-pulse-val{font-size:20px;font-weight:700;line-height:1.2;font-variant-numeric:tabular-nums}
+.xr-pulse-sub{font-size:11px;color:var(--mut);margin-top:4px;line-height:1.4}
+.xr-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+.xr-seg{display:inline-flex;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:2px;gap:2px;flex-wrap:wrap}
+.xr-seg button{border:0;background:transparent;color:var(--mut);font:inherit;font-size:11px;font-weight:600;padding:5px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.xr-seg button:hover{color:var(--fg)}
+.xr-seg button.active{background:var(--card);color:var(--fg);box-shadow:0 1px 2px rgba(15,23,42,.08)}
+.xr-search{width:175px;max-width:100%;padding:5px 9px;font-size:12px}
+.xr-two-col{display:grid;grid-template-columns:330px minmax(0,1fr);gap:12px;align-items:stretch;margin:10px 0}
+.xr-two-col>.card{margin:0}
+.xr-sec-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px;margin-top:10px}
+.xr-sec-tile{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;background:var(--bg);transition:border-color .15s ease,transform .15s ease}
+.xr-sec-tile.is-up{background:rgba(22,132,91,.06);border-color:rgba(22,132,91,.22)}
+.xr-sec-tile.is-dn{background:rgba(196,58,58,.06);border-color:rgba(196,58,58,.22)}
+.xr-sec-tile.clickable{cursor:pointer}
+.xr-sec-tile.clickable:hover{transform:translateY(-1px);border-color:var(--accent)}
+.xr-sec-tile.active-sec{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.xr-bar-track{height:6px;border-radius:999px;background:rgba(148,163,184,.2);overflow:hidden;margin-top:6px}
+.xr-bar-fill{height:100%;border-radius:999px}
+.xr-plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px}
+.xr-plan-box{background:var(--card);border:1px solid var(--bd);border-radius:6px;padding:6px 8px}
+.xr-plan-box small{display:block;font-size:10px;color:var(--mut)}
+.xr-plan-box b{font-size:14px;font-variant-numeric:tabular-nums}
+.xr-action{font-weight:700;font-size:11px;letter-spacing:.02em}
+.xr-tag-entry{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(22,132,91,.12);color:var(--up)}
+.xr-tag-near{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(217,119,6,.12);color:#92400e}
+@media(max-width:960px){.xr-pulse{grid-template-columns:repeat(2,1fr)}.xr-two-col{grid-template-columns:1fr}}
+@media(max-width:560px){.xr-pulse{grid-template-columns:1fr}.xr-search{width:100%}}
 </style>
 </head>
 <body>
@@ -1124,19 +1156,22 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
       <div class="sc" style="margin:0;border:1px solid var(--bd)">
         <div class="hd" style="justify-content:space-between;margin-bottom:8px">
           <h4 style="margin:0">Trade Plan</h4>
-          ${tp ? `<span class="badge ${tp.inside ? 'up' : 'mid'}">${escHtml(tp.opportunity)}${tp.hasFvg ? ' · FVG' : ''}</span>` : '<span class="badge mid">WAIT</span>'}
+          ${tp ? `<span class="${tp.inside ? 'xr-tag-entry' : 'xr-tag-near'}">${escHtml(tp.opportunity)}${tp.hasFvg ? ' · FVG' : ''}</span>` : '<span class="sub">Wait</span>'}
         </div>
         ${tp ? `
-          <div class="kv-row"><span class="sub">OB Zone (${escHtml(tp.status)})</span><b>${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
-          <div class="kv-row"><span class="sub">Entry</span><b style="color:#92400e">${fmt2(tp.entry)}</b></div>
-          <div class="kv-row"><span class="sub">Stop Loss</span><b class="dnt">${fmt2(tp.sl)}</b></div>
-          <div class="kv-row"><span class="sub">Target (R:R 1:${tp.rr})</span><b class="upt">${fmt2(tp.target)}</b></div>
-          <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
-          <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> / <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
+          <div class="xr-plan-grid">
+            <div class="xr-plan-box"><small>Entry</small><b style="color:#92400e">${fmt2(tp.entry)}</b></div>
+            <div class="xr-plan-box"><small>Stop Loss</small><b class="dnt">${fmt2(tp.sl)}</b></div>
+            <div class="xr-plan-box"><small>Target</small><b class="upt">${fmt2(tp.target)}</b></div>
+            <div class="xr-plan-box"><small>Reward Ratio</small><b class="upt">1 : ${tp.rr}</b></div>
+          </div>
+          <div class="kv-row"><span class="sub">OB Zone (${escHtml(tp.status)})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
+          <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'} num">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
+          <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)} ${rd.trend15m === 'Up' ? '✓' : rd.trend15m === 'Down' ? '✗' : ''}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)} ${rd.trend1h === 'Up' ? '✓' : rd.trend1h === 'Down' ? '✗' : ''}</span></b></div>
           <p class="note" style="margin-top:8px">${escHtml(tp.note)}</p>
         ` : `
-          <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
-          <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> / <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
+          <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'} num">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
+          <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
           <p class="note" style="margin-top:8px">No actionable Order Block trade setup at current price on ${escHtml(d.timeframe)}.</p>
         `}
       </div>
@@ -1144,7 +1179,7 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
   </div>`;
 }
 
-let xrayObRadarState = { tf: '5m', maxDist: 0.25, filter: 'ALL', data: null, loading: false };
+let xrayObRadarState = { tf: '5m', maxDist: 0.25, filter: 'ALL', search: '', sector: '', data: null, loading: false };
 
 async function openXrayStockChart(symbol, force = false, tfOverride = null) {
   if (!symbol) return;
@@ -1182,47 +1217,71 @@ function closeXrayStockChart() {
   document.querySelectorAll('#xray-body tr.clickable-stock').forEach(tr => tr.classList.remove('active-stock'));
 }
 
-function renderXrayObRadarInner(scan) {
-  if (xrayObRadarState.loading && !scan) {
-    return '<p class="sub" style="margin-top:8px">Scanning NIFTY 50 stocks for active Order Block opportunities…</p>';
-  }
-  if (!scan || !Array.isArray(scan.items)) {
-    return '<p class="sub" style="margin-top:8px">Order Block trade scanner unavailable right now. Click <b>Rescan</b> to retry.</p>';
-  }
+function getFilteredXraySetups(scan) {
   const f = xrayObRadarState.filter || 'ALL';
   const maxD = Number(xrayObRadarState.maxDist) || 0.25;
-  const rows = scan.items.filter(s => {
+  const q = (xrayObRadarState.search || '').trim().toUpperCase();
+  const sec = (xrayObRadarState.sector || '').trim();
+  return (scan?.items || []).filter(s => {
     if (s.distPct > maxD) return false;
-    if (f === 'BULL') return s.obSide === 'BULL';
-    if (f === 'BEAR') return s.obSide === 'BEAR';
-    if (f === 'INSIDE') return s.inside;
-    if (f === 'FRESH') return s.status === 'FRESH';
+    if (f === 'BULL' && s.obSide !== 'BULL') return false;
+    if (f === 'BEAR' && s.obSide !== 'BEAR') return false;
+    if (f === 'INSIDE' && !s.inside) return false;
+    if (f === 'FRESH' && s.status !== 'FRESH') return false;
+    if (sec && !(s.sector === sec || (sec === 'FMCG' && s.sector === 'FMCG & Consumer'))) return false;
+    if (q && !s.symbol.toUpperCase().includes(q) && !String(s.sector || '').toUpperCase().includes(q)) return false;
     return true;
   });
+}
+
+function renderXrayObRadarInner(scan) {
+  if (xrayObRadarState.loading && !scan) {
+    return '<p class="sub" style="margin-top:12px">Scanning NIFTY 50 stocks for active Order Block opportunities…</p>';
+  }
+  if (!scan || !Array.isArray(scan.items)) {
+    return '<p class="sub" style="margin-top:12px">Order Block trade scanner unavailable right now. Click <b>Rescan</b> to retry.</p>';
+  }
+  const maxD = Number(xrayObRadarState.maxDist) || 0.25;
+  const rows = getFilteredXraySetups(scan);
 
   if (!rows.length) {
-    return `<p class="sub" style="margin-top:8px">No NIFTY 50 stocks currently within <b>${maxD}%</b> of an actionable ${escHtml(scan.timeframe)} Order Block setup. Far-away stocks are hidden automatically.</p>`;
+    const resetBtn = (xrayObRadarState.filter !== 'ALL' || xrayObRadarState.search || xrayObRadarState.sector)
+      ? ` <button type="button" class="btn" style="padding:3px 9px;font-size:11px;margin-left:6px" onclick="resetXrayObFilters()">Clear Filters</button>`
+      : '';
+    return `<div style="margin-top:12px;padding:16px;text-align:center;background:var(--bg);border-radius:8px;border:1px solid var(--bd)">
+      <p class="sub">No stocks matching these filters within <b>${maxD}%</b> of a ${escHtml(scan.timeframe)} Order Block.${resetBtn}</p>
+    </div>`;
   }
 
-  return `<div style="max-height:540px;overflow:auto;margin-top:8px;border:1px solid var(--bd);border-radius:8px"><table>
-    <tr style="position:sticky;top:0;background:var(--card);z-index:1"><th>Stock</th><th>Price</th><th>Setup</th><th>OB Zone</th><th>Entry / SL / Target</th><th>R:R</th><th>VWAP</th></tr>
+  return `<div style="max-height:460px;overflow:auto;margin-top:10px;border:1px solid var(--bd);border-radius:8px"><table>
+    <tr style="position:sticky;top:0;background:var(--card);z-index:1">
+      <th>Stock</th>
+      <th>Price / Chg</th>
+      <th>Setup</th>
+      <th>OB Zone</th>
+      <th>Entry &middot; SL &middot; Target</th>
+      <th>R:R</th>
+      <th>VWAP</th>
+      <th></th>
+    </tr>
     ${rows.map(s => {
       const activeCls = xrayChartState.symbol === s.symbol ? ' active-stock' : '';
-      const sidePill = s.obSide === 'BULL' ? 'GOOD' : 'BAD';
-      const distTxt = s.inside
-        ? '<span class="badge up">AT ENTRY</span>'
-        : `<span class="badge ${s.distPct <= 0.25 ? 'up' : 'mid'}">${s.distPct.toFixed(2)}% away</span>`;
+      const isBuy = s.action === 'BUY';
+      const distLabel = s.inside
+        ? '<span class="xr-tag-entry">AT ENTRY</span>'
+        : `<span class="xr-tag-near">${s.distPct.toFixed(2)}% away</span>`;
       const vwapCell = s.aboveVwap === null
         ? '<span class="sub">-</span>'
-        : `<b class="${s.aboveVwap ? 'upt' : 'dnt'}">${s.aboveVwap ? 'Above' : 'Below'}</b>`;
+        : `<span class="${s.aboveVwap ? 'upt' : 'dnt'}" style="font-weight:600">${s.aboveVwap ? 'Above' : 'Below'}</span>`;
       return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}', false, '${escHtml(scan.timeframe)}')" title="Click to open ${escHtml(s.symbol)} clean chart">
         <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small>${escHtml(s.sector)}</small></td>
-        <td><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small></td>
-        <td><span class="pill ${sidePill}">${s.action === 'BUY' ? 'BUY · BULL OB' : 'SELL · BEAR OB'}</span><div style="margin-top:3px">${distTxt}</div></td>
-        <td><b>${fmt2(s.bot)}–${fmt2(s.top)}</b><br><small>${escHtml(s.status)}${s.hasFvg ? ' · <b style="color:#d97706">+FVG</b>' : ''}</small></td>
-        <td><small>Ent <b>${fmt2(s.entry)}</b> &middot; SL <b class="dnt">${fmt2(s.sl)}</b><br>Tgt <b class="upt">${fmt2(s.target)}</b></small></td>
-        <td><span class="badge up">1:${s.rr}</span></td>
+        <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small></td>
+        <td><span class="xr-action ${isBuy ? 'upt' : 'dnt'}">${isBuy ? 'BUY · BULL OB' : 'SELL · BEAR OB'}</span><div style="margin-top:2px">${distLabel}</div></td>
+        <td class="num"><b>${fmt2(s.bot)}–${fmt2(s.top)}</b><br><small>${escHtml(s.status)}${s.hasFvg ? ' · <b style="color:#d97706">+FVG</b>' : ''}</small></td>
+        <td class="num"><small>Ent <b>${fmt2(s.entry)}</b> &middot; SL <b class="dnt">${fmt2(s.sl)}</b><br>Tgt <b class="upt">${fmt2(s.target)}</b></small></td>
+        <td class="num"><b class="upt">1:${s.rr}</b></td>
         <td>${vwapCell}</td>
+        <td style="text-align:right"><small class="stock-link">Chart &rarr;</small></td>
       </tr>`;
     }).join('')}
   </table></div>`;
@@ -1232,6 +1291,36 @@ function updateXrayObRadarCard() {
   const card = document.getElementById('xray-ob-radar-card');
   if (!card) return;
   card.innerHTML = buildXrayObRadarCardHtml(xrayObRadarState.data);
+}
+
+function setXrayObSearch(val) {
+  xrayObRadarState.search = val;
+  updateXrayObRadarCard();
+  const inp = document.getElementById('xray-ob-search');
+  if (inp) {
+    inp.focus();
+    const len = inp.value.length;
+    inp.setSelectionRange(len, len);
+  }
+}
+
+function toggleXraySectorFilter(matchSector) {
+  if (!matchSector) return;
+  xrayObRadarState.sector = xrayObRadarState.sector === matchSector ? '' : matchSector;
+  updateXrayObRadarCard();
+  document.querySelectorAll('#xray-body .xr-sec-tile').forEach(el => {
+    el.classList.toggle('active-sec', el.dataset.sector === xrayObRadarState.sector);
+  });
+  const card = document.getElementById('xray-ob-radar-card');
+  if (card && xrayObRadarState.sector) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function resetXrayObFilters() {
+  xrayObRadarState.filter = 'ALL';
+  xrayObRadarState.search = '';
+  xrayObRadarState.sector = '';
+  updateXrayObRadarCard();
+  document.querySelectorAll('#xray-body .xr-sec-tile').forEach(el => el.classList.remove('active-sec'));
 }
 
 async function setXrayObRadarParams(tf, maxDist, filter, force = false) {
@@ -1257,27 +1346,27 @@ async function setXrayObRadarParams(tf, maxDist, filter, force = false) {
 }
 
 function buildXrayObRadarCardHtml(scan) {
-  const maxD = Number(xrayObRadarState.maxDist) || 0.25;
-  const f = xrayObRadarState.filter || 'ALL';
-  const filtered = (scan?.items || []).filter(s => {
-    if (s.distPct > maxD) return false;
-    if (f === 'BULL') return s.obSide === 'BULL';
-    if (f === 'BEAR') return s.obSide === 'BEAR';
-    if (f === 'INSIDE') return s.inside;
-    if (f === 'FRESH') return s.status === 'FRESH';
-    return true;
-  });
-  const matched = filtered.length;
-  const inside = filtered.filter(i => i.inside).length;
-  const badgeTxt = xrayObRadarState.loading
-    ? 'SCANNING…'
-    : `${matched} SETUPS${inside ? ` · ${inside} AT ENTRY` : ''}`;
-  const badgeCls = xrayObRadarState.loading ? 'mid' : (matched > 0 ? 'up' : 'mid');
+  const rows = getFilteredXraySetups(scan);
+  const matched = rows.length;
+  const inside = rows.filter(i => i.inside).length;
+  const buyCnt = rows.filter(i => i.action === 'BUY').length;
+  const sellCnt = rows.filter(i => i.action === 'SELL').length;
+  const metaText = xrayObRadarState.loading
+    ? 'Scanning NIFTY 50…'
+    : `${matched} Setups · ${inside} At Entry · ${buyCnt} Buy / ${sellCnt} Sell`;
+
+  const filters = [
+    { key: 'ALL', label: 'All Setups' },
+    { key: 'INSIDE', label: 'At Entry' },
+    { key: 'BULL', label: 'Buy (Bull OB)' },
+    { key: 'BEAR', label: 'Sell (Bear OB)' },
+    { key: 'FRESH', label: 'Fresh OB' }
+  ];
 
   return `<div class="hd" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
-      <div class="hd" style="gap:8px">
-        <h3 style="margin:0">Order Block Trade Opportunities <small style="font-weight:400">(click row for chart)</small></h3>
-        <span class="badge ${badgeCls}">${badgeTxt}</span>
+      <div>
+        <h3 style="margin:0">Order Block Trade Opportunities</h3>
+        <p class="sub" style="margin-top:2px">${escHtml(metaText)}${xrayObRadarState.sector ? ` · Filtered by sector <b>${escHtml(xrayObRadarState.sector)}</b> <a href="#" onclick="resetXrayObFilters();return false;" style="color:var(--accent)">Clear</a>` : ' · Click any stock for its clean Trade Plan chart'}</p>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <div class="tf-group">
@@ -1286,15 +1375,14 @@ function buildXrayObRadarCardHtml(scan) {
         <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayObRadarParams(null, this.value, null)">
           ${[0.15, 0.25, 0.35, 0.5].map(v => `<option value="${v}" ${Number(xrayObRadarState.maxDist) === v ? 'selected' : ''}>Within ${v}%</option>`).join('')}
         </select>
-        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayObRadarParams(null, null, this.value)">
-          <option value="ALL" ${xrayObRadarState.filter === 'ALL' ? 'selected' : ''}>All Setups</option>
-          <option value="BULL" ${xrayObRadarState.filter === 'BULL' ? 'selected' : ''}>Buy (Bull OB)</option>
-          <option value="BEAR" ${xrayObRadarState.filter === 'BEAR' ? 'selected' : ''}>Sell (Bear OB)</option>
-          <option value="INSIDE" ${xrayObRadarState.filter === 'INSIDE' ? 'selected' : ''}>At Entry Now</option>
-          <option value="FRESH" ${xrayObRadarState.filter === 'FRESH' ? 'selected' : ''}>Fresh OB Only</option>
-        </select>
         <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="setXrayObRadarParams(null, null, null, true)">Rescan</button>
       </div>
+    </div>
+    <div class="xr-toolbar">
+      <div class="xr-seg">
+        ${filters.map(f => `<button type="button" class="${xrayObRadarState.filter === f.key ? 'active' : ''}" onclick="setXrayObRadarParams(null, null, '${f.key}')">${f.label}</button>`).join('')}
+      </div>
+      <input type="text" id="xray-ob-search" class="xr-search" placeholder="Search stock or sector…" value="${escHtml(xrayObRadarState.search)}" oninput="setXrayObSearch(this.value)">
     </div>
     ${renderXrayObRadarInner(scan)}`;
 }
@@ -1313,89 +1401,144 @@ function renderXRay(m) {
 
   if (xNotice) {
     xNotice.className = 'sub';
-    const bTxt = x?.breadth ? ` &middot; NIFTY 50: ${x.breadth.up} Up / ${x.breadth.low} Down` : '';
-    xNotice.innerHTML = `Order Block setups, NIFTY 50 breadth, sectors &amp; top movers (${escHtml(m.asOf || '')})${bTxt}. Updated ${escHtml(syncedAt)}.`;
+    xNotice.innerHTML = `Multi-angle NIFTY 50 view: Order Block setups, market breadth, sector heat &amp; top movers (${escHtml(m.asOf || '')}) · Updated ${escHtml(syncedAt)}.`;
   }
 
   let html = '';
   if (x) {
-    const maxSecAbs = Math.max(0.5, ...(x.sectors || []).map(s => Math.abs(s.changePct || 0)));
-    const stockRow = s => {
-      const activeCls = xrayChartState.symbol === s.symbol ? ' active-stock' : '';
-      return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}')" title="Click to open ${escHtml(s.symbol)} chart"><td><span class="stock-link">${escHtml(s.symbol)}</span></td><td><small>${escHtml(s.sector)}</small></td><td>${fmt2(s.price)}</td><td class="${tone(s.change)}">${sgn(s.change)}</td><td class="${tone(s.changePct)}"><b>${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</b></td></tr>`;
-    };
+    const b = x.breadth;
+    const secs = x.sectors || [];
+    const maxSecAbs = Math.max(0.5, ...secs.map(s => Math.abs(s.changePct || 0)));
+    const topSec = secs[0];
+    const botSec = secs.length ? secs[secs.length - 1] : null;
+    const setupsAll = (obScan?.items || []).filter(s => s.distPct <= (Number(xrayObRadarState.maxDist) || 0.25));
+    const entryNowCnt = setupsAll.filter(s => s.inside).length;
+    const buySetups = setupsAll.filter(s => s.action === 'BUY').length;
+    const sellSetups = setupsAll.filter(s => s.action === 'SELL').length;
 
-    html = `<div class="card" id="xray-ob-radar-card">${buildXrayObRadarCardHtml(obScan)}</div>`;
-    if (x.breadth) {
-      const b = x.breadth;
-      const adTone = b.adRatio >= 1.2 ? 'up' : b.adRatio <= 0.8 ? 'dn' : 'mid';
-      html += `
-        <div class="card">
-          <div class="hd">
-            <h3>Market Breadth (NIFTY 50 Stocks)</h3>
-            <span class="badge ${adTone}" style="margin-left:auto">A/D Ratio: ${b.adRatio}</span>
-          </div>
-          <div class="tiles" style="margin-top:10px">
-            <div><small>Total Tracked</small><b>${b.total}</b></div>
-            <div><small>Stocks Up (&gt; +${b.flatBand}%)</small><b class="upt">${b.up} <small style="display:inline">(${b.upPct}%)</small></b></div>
-            <div><small>Stocks Low (&lt; -${b.flatBand}%)</small><b class="dnt">${b.low} <small style="display:inline">(${b.lowPct}%)</small></b></div>
-            <div><small>Neutral (&plusmn;${b.flatBand}%)</small><b class="mid">${b.neutral} <small style="display:inline">(${b.neutralPct}%)</small></b></div>
-          </div>
-          <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--bg);border:1px solid var(--bd);margin-top:8px">
-            <div style="width:${b.upPct}%;background:var(--up)" title="Up: ${b.up} (${b.upPct}%)"></div>
-            <div style="width:${b.neutralPct}%;background:#94a3b8" title="Neutral: ${b.neutral} (${b.neutralPct}%)"></div>
-            <div style="width:${b.lowPct}%;background:var(--dn)" title="Low: ${b.low} (${b.lowPct}%)"></div>
-          </div>
-        </div>`;
-    }
+    const moodTxt = !b ? '-' : (b.adRatio >= 1.3 ? 'Bullish' : b.adRatio <= 0.75 ? 'Bearish' : 'Mixed');
+    const moodCls = !b ? 'mid' : (b.adRatio >= 1.3 ? 'upt' : b.adRatio <= 0.75 ? 'dnt' : 'midt');
 
-    if ((x.sectors || []).length) {
-      html += `
-        <div class="card">
-          <h3>Sector Preview (NSE Sectoral Indices)</h3>
-          <table style="margin-top:8px">
-            <tr><th>Sector</th><th>Price</th><th>Change</th><th>% Change</th><th>Trend</th><th>Constituents (Up / Low / Neutral)</th></tr>
-            ${(x.sectors || []).map(sec => {
-              const w = Math.min(100, Math.round((Math.abs(sec.changePct) / maxSecAbs) * 100));
-              const barCol = sec.changePct >= 0 ? 'var(--up)' : 'var(--dn)';
-              const br = sec.breadth
-                ? `<b class="upt">${sec.breadth.up}</b> / <b class="dnt">${sec.breadth.low}</b> / <span class="mid">${sec.breadth.neutral}</span> <small>(of ${sec.breadth.total})</small>`
-                : '<small>-</small>';
-              return `<tr>
-                <td><b>${escHtml(sec.name)}</b></td>
-                <td>${fmt2(sec.price)}</td>
-                <td class="${tone(sec.change)}">${sgn(sec.change)}</td>
-                <td class="${tone(sec.changePct)}">
-                  <div style="display:flex;align-items:center;gap:8px">
-                    <b style="min-width:54px">${sec.changePct > 0 ? '+' : ''}${Number(sec.changePct).toFixed(2)}%</b>
-                    <span style="flex:1;max-width:90px;height:6px;background:var(--bg);border-radius:4px;overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${w}%;background:${barCol}"></span></span>
-                  </div>
-                </td>
-                <td><span class="pill ${sec.status}">${sec.status}</span></td>
-                <td>${br}</td>
-              </tr>`;
-            }).join('')}
-          </table>
-        </div>`;
-    }
+    // Angle 1: Instant Market Pulse Overview Strip
+    html += `<div class="xr-pulse">
+      <div class="xr-pulse-tile">
+        <div class="xr-pulse-lbl">OB Trade Setups (${escHtml(xrayObRadarState.tf)})</div>
+        <div class="xr-pulse-val">${setupsAll.length} Ready <small style="font-weight:600;color:var(--up)">(${entryNowCnt} at entry)</small></div>
+        <div class="xr-pulse-sub"><b class="upt">${buySetups} Buy</b> &middot; <b class="dnt">${sellSetups} Sell</b> within ${Number(xrayObRadarState.maxDist) || 0.25}%</div>
+      </div>
+      <div class="xr-pulse-tile">
+        <div class="xr-pulse-lbl">NIFTY 50 Market Mood</div>
+        <div class="xr-pulse-val ${moodCls}">${escHtml(moodTxt)} <small class="sub" style="font-weight:600">(A/D ${b ? b.adRatio : '-'})</small></div>
+        <div class="xr-pulse-sub">${b ? `<b class="upt">${b.up} Up</b> &middot; <b class="dnt">${b.low} Down</b> &middot; ${b.neutral} Flat` : '-'}</div>
+      </div>
+      <div class="xr-pulse-tile">
+        <div class="xr-pulse-lbl">Leading Sector</div>
+        <div class="xr-pulse-val ${topSec ? tone(topSec.changePct) : ''}">${topSec ? escHtml(topSec.name.replace(/^Nifty\s+/i, '')) : '-'}</div>
+        <div class="xr-pulse-sub num">${topSec ? `<b class="${tone(topSec.changePct)}">${topSec.changePct > 0 ? '+' : ''}${Number(topSec.changePct).toFixed(2)}%</b>${topSec.breadth ? ` &middot; ${topSec.breadth.up}/${topSec.breadth.total} Up` : ''}` : '-'}</div>
+      </div>
+      <div class="xr-pulse-tile">
+        <div class="xr-pulse-lbl">Weakest Sector</div>
+        <div class="xr-pulse-val ${botSec ? tone(botSec.changePct) : ''}">${botSec ? escHtml(botSec.name.replace(/^Nifty\s+/i, '')) : '-'}</div>
+        <div class="xr-pulse-sub num">${botSec ? `<b class="${tone(botSec.changePct)}">${botSec.changePct > 0 ? '+' : ''}${Number(botSec.changePct).toFixed(2)}%</b>${botSec.breadth ? ` &middot; ${botSec.breadth.low}/${botSec.breadth.total} Down` : ''}` : '-'}</div>
+      </div>
+    </div>`;
 
-    html += `
-      <div class="cols" style="margin:10px 0">
-        <div class="card">
-          <h3>Top Gain <small style="font-weight:400">(Top Gainers &middot; click row for chart)</small></h3>
-          <table style="margin-top:8px">
-            <tr><th>Stock</th><th>Sector</th><th>Price</th><th>Chg</th><th>% Chg</th></tr>
-            ${(x.topHigh || []).map(stockRow).join('')}
-          </table>
+    // Angle 2: Actionable Order Block Trade Opportunities
+    html += `<div class="card" id="xray-ob-radar-card">${buildXrayObRadarCardHtml(obScan)}</div>`;
+
+    // Angle 3: Market Breadth + Sector Heatmap Side-by-Side
+    html += `<div class="xr-two-col">`;
+    if (b) {
+      const adTone = b.adRatio >= 1.2 ? 'upt' : b.adRatio <= 0.8 ? 'dnt' : 'midt';
+      html += `<div class="card">
+        <div class="hd" style="justify-content:space-between">
+          <h3 style="margin:0">Market Breadth</h3>
+          <b class="${adTone} num">A/D ${b.adRatio}</b>
         </div>
-        <div class="card">
-          <h3>Top Loss <small style="font-weight:400">(Top Losers &middot; click row for chart)</small></h3>
-          <table style="margin-top:8px">
-            <tr><th>Stock</th><th>Sector</th><th>Price</th><th>Chg</th><th>% Chg</th></tr>
-            ${(x.topLoss || []).map(stockRow).join('')}
-          </table>
+        <p class="sub" style="margin-top:2px">All ${b.total} NIFTY 50 stocks</p>
+        <div style="display:flex;height:12px;border-radius:6px;overflow:hidden;background:var(--bg);border:1px solid var(--bd);margin:12px 0">
+          <div style="width:${b.upPct}%;background:var(--up)" title="Up: ${b.up} (${b.upPct}%)"></div>
+          <div style="width:${b.neutralPct}%;background:#94a3b8" title="Neutral: ${b.neutral} (${b.neutralPct}%)"></div>
+          <div style="width:${b.lowPct}%;background:var(--dn)" title="Low: ${b.low} (${b.lowPct}%)"></div>
+        </div>
+        <div class="kv-row"><span class="sub">Advancing (&gt; +${b.flatBand}%)</span><b class="upt num">${b.up} <small style="font-weight:400">(${b.upPct}%)</small></b></div>
+        <div class="kv-row"><span class="sub">Declining (&lt; -${b.flatBand}%)</span><b class="dnt num">${b.low} <small style="font-weight:400">(${b.lowPct}%)</small></b></div>
+        <div class="kv-row"><span class="sub">Neutral (&plusmn;${b.flatBand}%)</span><b class="midt num">${b.neutral} <small style="font-weight:400">(${b.neutralPct}%)</small></b></div>
+      </div>`;
+    }
+
+    if (secs.length) {
+      html += `<div class="card">
+        <div class="hd" style="justify-content:space-between;flex-wrap:wrap;gap:6px">
+          <h3 style="margin:0">Sector Heatmap <small style="font-weight:400">(click sector to filter setups)</small></h3>
+          <span class="sub">${secs.filter(s => s.changePct > 0).length} Green &middot; ${secs.filter(s => s.changePct < 0).length} Red</span>
+        </div>
+        <div class="xr-sec-grid">
+          ${secs.map(sec => {
+            const isUp = sec.changePct >= 0;
+            const w = Math.min(100, Math.round((Math.abs(sec.changePct) / maxSecAbs) * 100));
+            const clickable = sec.matchSector ? ' clickable' : '';
+            const activeSec = (sec.matchSector && xrayObRadarState.sector === sec.matchSector) ? ' active-sec' : '';
+            const onclick = sec.matchSector ? ` onclick="toggleXraySectorFilter('${escHtml(sec.matchSector)}')" title="Filter setups in ${escHtml(sec.matchSector)}"` : '';
+            const brTxt = sec.breadth ? `${sec.breadth.up} Up · ${sec.breadth.low} Dn` : fmt2(sec.price);
+            return `<div class="xr-sec-tile ${isUp ? 'is-up' : 'is-dn'}${clickable}${activeSec}" data-sector="${escHtml(sec.matchSector || '')}"${onclick}>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">
+                <b style="font-size:12px">${escHtml(sec.name.replace(/^Nifty\s+/i, ''))}</b>
+                <b class="${tone(sec.changePct)} num" style="font-size:12px">${sec.changePct > 0 ? '+' : ''}${Number(sec.changePct).toFixed(2)}%</b>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-top:3px">
+                <small class="num">${fmt2(sec.price)}</small>
+                <small>${escHtml(brTxt)}</small>
+              </div>
+              <div class="xr-bar-track"><div class="xr-bar-fill" style="width:${w}%;background:${isUp ? 'var(--up)' : 'var(--dn)'}"></div></div>
+            </div>`;
+          }).join('')}
         </div>
       </div>`;
+    }
+    html += `</div>`;
+
+    // Angle 4: Top Gainers & Top Losers with proportional visual bars
+    const maxMoveAbs = Math.max(0.5, ...(x.topHigh || []).map(s => Math.abs(s.changePct || 0)), ...(x.topLoss || []).map(s => Math.abs(s.changePct || 0)));
+    const moverRow = s => {
+      const activeCls = xrayChartState.symbol === s.symbol ? ' active-stock' : '';
+      const barW = Math.min(100, Math.round((Math.abs(s.changePct) / maxMoveAbs) * 100));
+      const isUp = s.changePct >= 0;
+      return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}')" title="Click to open ${escHtml(s.symbol)} chart">
+        <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small>${escHtml(s.sector)}</small></td>
+        <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.change)}">${sgn(s.change)}</small></td>
+        <td style="width:42%">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">
+            <b class="${tone(s.changePct)} num">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</b>
+            <small class="stock-link">Chart &rarr;</small>
+          </div>
+          <div class="xr-bar-track" style="margin-top:4px"><div class="xr-bar-fill" style="width:${barW}%;background:${isUp ? 'var(--up)' : 'var(--dn)'}"></div></div>
+        </td>
+      </tr>`;
+    };
+
+    html += `<div class="cols" style="margin:10px 0">
+      <div class="card">
+        <div class="hd" style="justify-content:space-between">
+          <h3 style="margin:0">Top Gainers</h3>
+          <small class="sub">Click row for Trade Plan chart</small>
+        </div>
+        <table style="margin-top:8px">
+          <tr><th>Stock</th><th>Spot</th><th>% Move</th></tr>
+          ${(x.topHigh || []).map(moverRow).join('')}
+        </table>
+      </div>
+      <div class="card">
+        <div class="hd" style="justify-content:space-between">
+          <h3 style="margin:0">Top Losers</h3>
+          <small class="sub">Click row for Trade Plan chart</small>
+        </div>
+        <table style="margin-top:8px">
+          <tr><th>Stock</th><th>Spot</th><th>% Move</th></tr>
+          ${(x.topLoss || []).map(moverRow).join('')}
+        </table>
+      </div>
+    </div>`;
   } else {
     html = `<div class="card"><p class="sub">Order Block scanner temporarily unavailable.</p></div>`;
   }

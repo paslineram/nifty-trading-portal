@@ -1242,6 +1242,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
             : [];
         return {
             name: sec.name,
+            matchSector: sec.matchSector || null,
             price: sec.price,
             change: sec.change,
             changePct: sec.changePct,
