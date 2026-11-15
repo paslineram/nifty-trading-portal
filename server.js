@@ -224,14 +224,18 @@ app.get('/api/market', async (req, res) => {
             processSnapshotForTelegram(data, appConfig).catch(() => null),
             processSnapshotForAutoOrder(data, appConfig).catch(() => null)
         ]);
+        const tgState = loadTelegramState();
         res.json({
             ...data,
             alerts: getTelegramAlertsForDashboard(),
             upstoxDaily: getUpstoxDailyStatus(),
             telegramStatus: {
                 enabled: Boolean(appConfig.telegramEnabled),
+                autoMonitor: Boolean(appConfig.telegramAutoMonitor),
                 hasToken: Boolean(appConfig.telegramBotToken),
                 hasChatId: Boolean(appConfig.telegramChatId),
+                lastSentAt: tgState.lastSentAt || null,
+                lastCheckAt: tgState.lastCheckAt || null,
                 permanent: true
             }
         });
@@ -393,6 +397,7 @@ app.get('/api/settings', async (req, res) => {
 });
 
 app.post('/api/settings', async (req, res) => {
+    const hadTelegramCreds = Boolean(appConfig.telegramBotToken && appConfig.telegramChatId);
     const body = req.body || {};
     const allowed = [
         'upstoxToken', 'instrument', 'lotSize', 'actionType', 'maxTrades', 'obMaxAge', 'impATR',
@@ -430,6 +435,9 @@ app.post('/api/settings', async (req, res) => {
             }
         }
     }
+    if (!hadTelegramCreds && appConfig.telegramBotToken && appConfig.telegramChatId && body.telegramEnabled === undefined) {
+        appConfig.telegramEnabled = true;
+    }
     const nowIso = new Date().toISOString();
     if (upstoxTokenUpdated) {
         appConfig.upstoxTokenUpdatedAt = nowIso;
@@ -447,6 +455,9 @@ app.post('/api/settings', async (req, res) => {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
     await ensureTelegramVerified();
+    if (appConfig.telegramEnabled && appConfig.telegramAutoMonitor && appConfig.telegramBotToken && appConfig.telegramChatId) {
+        setImmediate(() => { runBackgroundSignalMonitor(); });
+    }
 
     res.json({
         success: true,
@@ -668,7 +679,20 @@ app.get('/api/telegram', async (req, res) => {
     });
 });
 
+function buildEffectiveTelegramConfig(body = {}) {
+    const instRaw = typeof body.instrument === 'string' ? body.instrument.trim().toUpperCase() : '';
+    const tokenOverride = typeof body.telegramBotToken === 'string' ? body.telegramBotToken.trim() : '';
+    const chatIdOverride = body.telegramChatId !== undefined ? String(body.telegramChatId).trim() : '';
+    return {
+        ...appConfig,
+        ...(tokenOverride ? { telegramBotToken: tokenOverride } : {}),
+        ...(chatIdOverride ? { telegramChatId: chatIdOverride } : {}),
+        ...(['NIFTY', 'SENSEX', 'BOTH'].includes(instRaw) ? { instrument: instRaw } : {})
+    };
+}
+
 app.post('/api/telegram/settings', async (req, res) => {
+    const hadTelegramCreds = Boolean(appConfig.telegramBotToken && appConfig.telegramChatId);
     const body = req.body || {};
     if (typeof body.telegramBotToken === 'string' && body.telegramBotToken.trim()) {
         appConfig.telegramBotToken = body.telegramBotToken.trim();
@@ -679,6 +703,8 @@ app.post('/api/telegram/settings', async (req, res) => {
     }
     if (body.telegramEnabled !== undefined) {
         appConfig.telegramEnabled = body.telegramEnabled === true || body.telegramEnabled === 'true';
+    } else if (!hadTelegramCreds && appConfig.telegramBotToken && appConfig.telegramChatId) {
+        appConfig.telegramEnabled = true;
     }
     if (body.telegramNotifyEntries !== undefined) {
         appConfig.telegramNotifyEntries = body.telegramNotifyEntries === true || body.telegramNotifyEntries === 'true';
@@ -696,6 +722,9 @@ app.post('/api/telegram/settings', async (req, res) => {
     }
     settingsSavedAt = new Date().toISOString();
     saveAppConfig();
+    if (appConfig.telegramEnabled && appConfig.telegramAutoMonitor && appConfig.telegramBotToken && appConfig.telegramChatId) {
+        setImmediate(() => { runBackgroundSignalMonitor(); });
+    }
     res.json({
         success: true,
         savedAt: settingsSavedAt,
@@ -707,8 +736,12 @@ app.post('/api/telegram/settings', async (req, res) => {
 
 app.post('/api/telegram/test', async (req, res) => {
     try {
-        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, false).catch(() => null);
-        const result = await sendTestTelegramAlert(appConfig, snapshot);
+        const effConfig = buildEffectiveTelegramConfig(req.body || {});
+        const snapshot = await Promise.race([
+            getLiveMarketSnapshot(effConfig.upstoxToken, effConfig.instrument, false).catch(() => null),
+            new Promise(resolve => setTimeout(() => resolve(null), 2500))
+        ]);
+        const result = await sendTestTelegramAlert(effConfig, snapshot);
         res.status(result.ok ? 200 : 400).json({
             success: result.ok,
             status: result.status,
@@ -725,9 +758,11 @@ app.post('/api/telegram/test', async (req, res) => {
 
 app.post('/api/telegram/check', async (req, res) => {
     try {
-        const sendLatest = Boolean(req.body?.sendLatest);
-        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, true);
-        const result = await processSnapshotForTelegram(snapshot, appConfig, { sendLatest });
+        const body = req.body || {};
+        const sendLatest = Boolean(body.sendLatest);
+        const effConfig = buildEffectiveTelegramConfig(body);
+        const snapshot = await getLiveMarketSnapshot(effConfig.upstoxToken, effConfig.instrument, true);
+        const result = await processSnapshotForTelegram(snapshot, effConfig, { sendLatest });
         res.json({
             success: true,
             sendLatest,

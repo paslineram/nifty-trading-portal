@@ -138,12 +138,19 @@ function formatSignalMessage(inst, sig, eventType) {
     ].join('\n');
 }
 
+function buildBotUrl(token, method) {
+    const cleanToken = String(token || '').trim();
+    const encodedToken = encodeURIComponent(cleanToken).replace(/%3A/gi, ':');
+    return `${TELEGRAM_API}/bot${encodedToken}/${method}`;
+}
+
 async function verifyTelegramBot(token) {
-    if (!token) {
+    const cleanToken = String(token || '').trim();
+    if (!cleanToken) {
         return { verified: false, bot: null, error: null, httpStatus: null, checkedAt: null };
     }
     try {
-        const resp = await fetch(`${TELEGRAM_API}/bot${encodeURIComponent(token)}/getMe`, {
+        const resp = await fetch(buildBotUrl(cleanToken, 'getMe'), {
             method: 'GET',
             signal: AbortSignal.timeout(8000)
         });
@@ -181,15 +188,17 @@ async function verifyTelegramBot(token) {
 }
 
 async function sendTelegramMessage(token, chatId, htmlText) {
-    if (!token || !chatId) {
+    const cleanToken = String(token || '').trim();
+    const cleanChatId = String(chatId || '').trim();
+    if (!cleanToken || !cleanChatId) {
         return { ok: false, error: 'Telegram Bot Token and Chat ID are required.' };
     }
     try {
-        const resp = await fetch(`${TELEGRAM_API}/bot${encodeURIComponent(token)}/sendMessage`, {
+        const resp = await fetch(buildBotUrl(cleanToken, 'sendMessage'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                chat_id: String(chatId).trim(),
+                chat_id: cleanChatId,
                 text: htmlText,
                 parse_mode: 'HTML',
                 disable_web_page_preview: true
@@ -286,8 +295,13 @@ async function processSnapshotForTelegram(snapshot, config, options = {}) {
                     text,
                     sig
                 });
+                if (out.ok) {
+                    const key = eventType === 'EXIT' ? buildExitKey(inst.key, sig) : buildEntryKey(inst.key, sig);
+                    if (key) seen.add(key);
+                }
                 results.push({ index: inst.key, type: eventType, ...out });
             }
+            state.sentKeys = Array.from(seen).slice(-600);
             saveTelegramState(state);
             return { seededJustNow: false, dispatched: results, state };
         }
@@ -307,14 +321,15 @@ async function processSnapshotForTelegram(snapshot, config, options = {}) {
             return { seededJustNow: true, dispatched: [], state };
         }
 
+        const canDispatch = Boolean(config.telegramEnabled && config.telegramBotToken && config.telegramChatId);
+
         for (const inst of activeInsts) {
             // Evaluate oldest-to-newest so chronological order is preserved if multiple fire together
             const ordered = [...(inst.signals || [])].reverse();
             for (const sig of ordered) {
                 const entryKey = buildEntryKey(inst.key, sig);
-                if (!seen.has(entryKey)) {
-                    seen.add(entryKey);
-                    if (config.telegramEnabled && config.telegramNotifyEntries !== false) {
+                if (!seen.has(entryKey) && canDispatch) {
+                    if (config.telegramNotifyEntries !== false) {
                         const out = await dispatchAndLog(state, config, {
                             index: inst.key,
                             type: 'ENTRY',
@@ -322,14 +337,16 @@ async function processSnapshotForTelegram(snapshot, config, options = {}) {
                             text: formatSignalMessage(inst, sig, 'ENTRY'),
                             sig
                         });
+                        if (out.ok) seen.add(entryKey);
                         results.push({ index: inst.key, type: 'ENTRY', ...out });
+                    } else {
+                        seen.add(entryKey);
                     }
                 }
 
                 const exitKey = buildExitKey(inst.key, sig);
-                if (exitKey && !seen.has(exitKey)) {
-                    seen.add(exitKey);
-                    if (config.telegramEnabled && config.telegramNotifyExits !== false) {
+                if (exitKey && !seen.has(exitKey) && canDispatch) {
+                    if (config.telegramNotifyExits !== false) {
                         const out = await dispatchAndLog(state, config, {
                             index: inst.key,
                             type: 'EXIT',
@@ -337,7 +354,10 @@ async function processSnapshotForTelegram(snapshot, config, options = {}) {
                             text: formatSignalMessage(inst, sig, 'EXIT'),
                             sig
                         });
+                        if (out.ok) seen.add(exitKey);
                         results.push({ index: inst.key, type: 'EXIT', ...out });
+                    } else {
+                        seen.add(exitKey);
                     }
                 }
             }

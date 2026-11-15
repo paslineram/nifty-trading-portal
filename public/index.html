@@ -409,6 +409,7 @@ const SETTINGS_FIELD_IDS = [
 const dirtySettingsFields = new Set();
 let settingsHydratedFromServer = false;
 let settingsAutoSyncedOnce = false;
+let serverHasTelegramCreds = false;
 
 function getUpstoxTradingDayIST(date = new Date()) {
   const shifted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
@@ -537,6 +538,12 @@ function bindSettingsDirtyListeners() {
     el.dataset.dirtyBound = '1';
     const markDirty = () => {
       dirtySettingsFields.add(id);
+      if ((id === 'tg-token' || id === 'tg-chatid') && !serverHasTelegramCreds && !dirtySettingsFields.has('tg-enabled')) {
+        const tgTok = document.getElementById('tg-token')?.value.trim();
+        const tgChat = document.getElementById('tg-chatid')?.value.trim();
+        const tgEnEl = document.getElementById('tg-enabled');
+        if (tgTok && tgChat && tgEnEl) tgEnEl.value = 'true';
+      }
       writeDraftStore();
     };
     el.addEventListener('input', markDirty);
@@ -983,7 +990,7 @@ function renderLive(m) {
          const stCls = a.sl === 'SENT' ? 'GOOD' : a.sl === 'FAILED' ? 'BAD' : 'NEUTRAL';
          return `<tr><td>${escHtml(a.logged)}</td><td><b>${escHtml(a.index)}</b></td><td>${escHtml(a.bar)}</td><td class="${/PE/.test(a.side) ? 'upt' : /CE/.test(a.side) ? 'dnt' : ''}">${escHtml(a.side)}</td><td>${escHtml(a.ref)}</td><td><span class="pill ${stCls}">${escHtml(a.sl)}</span></td><td>${escHtml(a.tp1)}</td><td>${escHtml(a.setup)}</td></tr>`;
        }).join('') : '<tr><td colspan="8" class="sub">No Telegram alerts dispatched yet. Configure your Telegram Bot Token &amp; Chat ID in Settings.</td></tr>'}</table></div>
-     <div class="card"><details><summary>Order log &amp; monitor log</summary><p class="sub" style="margin-top:8px">${m.telegramStatus?.enabled ? '30s background Telegram signal monitor is active.' : 'Telegram alerts currently paused or unconfigured.'}</p></details></div>`;
+     <div class="card"><details><summary>Order log &amp; monitor log</summary><p class="sub" style="margin-top:8px">${m.telegramStatus?.enabled && m.telegramStatus?.hasToken && m.telegramStatus?.hasChatId ? (m.telegramStatus?.autoMonitor !== false ? '30s background Telegram signal monitor is active.' : 'Telegram alerts enabled (manual/tab polling only).') : 'Telegram alerts currently paused or unconfigured.'}</p></details></div>`;
   renderXRay(m);
   renderSignalSummary(m);
 }
@@ -1511,7 +1518,7 @@ async function loadTelegramStatus() {
 }
 
 function showTgActionMsg(text, cls) {
-  ['sig-tg-action-msg', 'tg-msg'].forEach(id => {
+  ['sig-tg-action-msg', 'settings-msg'].forEach(id => {
     const el = document.getElementById(id);
     if (el) {
       el.style.display = 'block';
@@ -1521,11 +1528,21 @@ function showTgActionMsg(text, cls) {
   });
 }
 
+function getTelegramActionOverrides() {
+  const payload = {};
+  const tok = document.getElementById('tg-token')?.value.trim();
+  const chatId = document.getElementById('tg-chatid')?.value.trim();
+  const inst = document.getElementById('set-sym')?.value;
+  if (tok) payload.telegramBotToken = tok;
+  if (chatId) payload.telegramChatId = chatId;
+  if (inst) payload.instrument = inst;
+  return payload;
+}
+
 async function saveTelegramSettings(e) {
   e.preventDefault();
   const btn = document.getElementById('tg-save-btn');
-  const msg = document.getElementById('tg-msg');
-  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = 'Saving Telegram configuration & verifying Bot Token…'; }
+  showTgActionMsg('Saving Telegram configuration & verifying Bot Token…', 'sub');
   if (btn) btn.disabled = true;
 
   const body = {
@@ -1572,7 +1589,11 @@ async function sendTelegramTest(btn) {
   if (btn) btn.disabled = true;
   showTgActionMsg('Sending test alert to Telegram…', 'sub');
   try {
-    const r = await fetch('/api/telegram/test', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    const r = await fetch('/api/telegram/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(getTelegramActionOverrides())
+    });
     const data = await r.json();
     if (!r.ok || !data.success) throw new Error(data.error || 'Telegram test alert failed');
     showTgActionMsg(`Test alert delivered to Telegram (message #${data.messageId || 'ok'}).`, 'upt');
@@ -1592,7 +1613,7 @@ async function pushLatestSignalToTelegram(btn) {
     const r = await fetch('/api/telegram/check', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sendLatest: true })
+      body: JSON.stringify({ sendLatest: true, ...getTelegramActionOverrides() })
     });
     const data = await r.json();
     if (!r.ok || !data.success) throw new Error(data.error || 'Failed to push latest signal');
@@ -1863,8 +1884,9 @@ function renderSettingsResult(data) {
 
   if (cfg.instrument) setVal('set-sym', cfg.instrument);
   if (cfg.maxTrades != null) setVal('set-maxtrades', cfg.maxTrades);
+  serverHasTelegramCreds = Boolean(cfg.hasTelegramToken && cfg.telegramChatId);
   setVal('tg-chatid', cfg.telegramChatId || '');
-  setVal('tg-enabled', String(Boolean(cfg.telegramEnabled)));
+  setVal('tg-enabled', String(serverHasTelegramCreds ? Boolean(cfg.telegramEnabled) : true));
   setVal('tg-entries', String(cfg.telegramNotifyEntries !== false));
   setVal('tg-exits', String(cfg.telegramNotifyExits !== false));
   setVal('tg-monitor', String(cfg.telegramAutoMonitor !== false));
@@ -2146,10 +2168,12 @@ async function saveAllSettings(e) {
     }
     if (data.telegram?.verified) {
       parts.push(`Telegram verified (@${data.telegram.bot?.username || 'bot'})`);
+    } else if (data.appConfig?.hasTelegramToken && data.telegram?.error) {
+      parts.push(`Telegram warning: ${data.telegram.error}`);
     }
 
     if (msg) {
-      msg.className = 'upt';
+      msg.className = (data.appConfig?.hasTelegramToken && data.telegram?.error) ? 'mid' : 'upt';
       msg.textContent = parts.join(' · ') + '.';
     }
     renderSettingsResult(data);
