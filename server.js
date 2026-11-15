@@ -277,7 +277,7 @@ app.get('/api/xray/ob-radar', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
         const tf = req.query.tf || '5m';
-        const maxDistPct = req.query.maxDist || 1.0;
+        const maxDistPct = req.query.maxDist || 0.25;
         const force = req.query.force === '1';
         const data = await scanNifty50OrderBlocks({
             timeframe: tf,

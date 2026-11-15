@@ -1258,7 +1258,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
     const stockMap = new Map(stocks.map(s => [s.symbol, s]));
     const nearOrderBlocks = await scanNifty50OrderBlocks({
         timeframe: '5m',
-        maxDistPct: 1.0,
+        maxDistPct: 0.25,
         token,
         stockMap
     }).catch(() => null);
@@ -2146,10 +2146,94 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
         atr: r2(lastAtr),
         visibleOBs,
         tradeZone,
+        swingHighs,
+        swingLows,
         liquidity: cleanLiquidity,
         resistance,
         support,
         structure
+    };
+}
+
+function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance = null, support = null, atr = 0) {
+    if (!ob || !Number.isFinite(price) || price <= 0) return null;
+    if (ob.status === 'broken' || Number(ob.tests || 0) > 2) return null;
+
+    const inside = price >= ob.bot && price <= ob.top;
+    const distPts = inside ? 0 : Math.min(Math.abs(price - ob.top), Math.abs(price - ob.bot));
+    const distPct = r2((distPts / price) * 100);
+    const position = inside ? 'INSIDE' : (price > ob.top ? 'ABOVE' : 'BELOW');
+
+    // Only keep actionable alignment:
+    // Bull OB (demand) -> price must be INSIDE or pulling back from ABOVE
+    // Bear OB (supply) -> price must be INSIDE or bouncing up from BELOW
+    if (ob.side === 'BULL' && position === 'BELOW') return null;
+    if (ob.side === 'BEAR' && position === 'ABOVE') return null;
+
+    const zoneHeight = Math.max(price * 0.001, ob.top - ob.bot);
+    const slBuffer = Math.max(0.05, Math.min(zoneHeight * 0.15, (atr || zoneHeight) * 0.15));
+
+    let entry;
+    let sl;
+    let risk;
+    let target;
+
+    if (ob.side === 'BULL') {
+        entry = r2(inside ? price : ob.top);
+        sl = r2(ob.bot - slBuffer);
+        risk = Math.max(price * 0.0015, entry - sl);
+
+        const overhead = [
+            ...(swingHighs || []).filter(s => s.price > entry + risk * 1.4).map(s => s.price),
+            ...(resistance && resistance > entry + risk * 1.4 ? [resistance] : [])
+        ].sort((a, b) => a - b);
+
+        // Reject if an immediate closer ceiling caps reward below 1.3R
+        const immediateCap = [
+            ...(swingHighs || []).filter(s => s.price > entry).map(s => s.price),
+            ...(resistance && resistance > entry ? [resistance] : [])
+        ].sort((a, b) => a - b)[0];
+
+        if (immediateCap && (immediateCap - entry) < risk * 1.3 && overhead.length === 0) {
+            return null;
+        }
+        target = r2(overhead.length ? Math.min(overhead[0], entry + risk * 3.0) : (entry + risk * 2.0));
+    } else {
+        entry = r2(inside ? price : ob.bot);
+        sl = r2(ob.top + slBuffer);
+        risk = Math.max(price * 0.0015, sl - entry);
+
+        const belowTargets = [
+            ...(swingLows || []).filter(s => s.price < entry - risk * 1.4).map(s => s.price),
+            ...(support && support < entry - risk * 1.4 ? [support] : [])
+        ].sort((a, b) => b - a);
+
+        const immediateFloor = [
+            ...(swingLows || []).filter(s => s.price < entry).map(s => s.price),
+            ...(support && support < entry ? [support] : [])
+        ].sort((a, b) => b - a)[0];
+
+        if (immediateFloor && (entry - immediateFloor) < risk * 1.3 && belowTargets.length === 0) {
+            return null;
+        }
+        target = r2(belowTargets.length ? Math.max(belowTargets[0], entry - risk * 3.0) : (entry - risk * 2.0));
+    }
+
+    const reward = ob.side === 'BULL' ? (target - entry) : (entry - target);
+    const rr = r2(reward / Math.max(0.01, risk));
+    if (rr < 1.4) return null;
+
+    return {
+        action: ob.side === 'BULL' ? 'BUY' : 'SELL',
+        obSide: ob.side,
+        entry,
+        sl,
+        target,
+        rr,
+        distPct,
+        inside,
+        position,
+        opportunity: inside ? 'AT ENTRY' : 'APPROACHING'
     };
 }
 
@@ -2259,71 +2343,44 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     const trend15m = computeTrendFromCandles(c15);
     const trend1h = computeTrendFromCandles(c1h);
 
-    // Move vs normal day
-    const todayBars = visibleCandles.filter(c => c.ymd === latestYmd);
-    const todayHigh = todayBars.length ? Math.max(...todayBars.map(c => c.h)) : lastBar.h;
-    const todayLow = todayBars.length ? Math.min(...todayBars.map(c => c.l)) : lastBar.l;
-    const todayRange = Math.max(0.01, todayHigh - todayLow);
-    const priorDaily = dailyCandles.filter(d => d.ymd < latestYmd).slice(-10);
-    const avgDailyRange = priorDaily.length
-        ? priorDaily.reduce((s, d) => s + Math.max(0.01, d.h - d.l), 0) / priorDaily.length
-        : todayRange;
-    const moveVsNormalDay = r2(todayRange / Math.max(0.01, avgDailyRange));
-
-    // Trend cleanliness (efficiency ratio over today's bars or visible window)
-    const effBars = todayBars.length >= 6 ? todayBars : visibleCandles.slice(-24);
-    let pathSum = 0;
-    for (let i = 1; i < effBars.length; i++) {
-        pathSum += Math.abs(effBars[i].c - effBars[i - 1].c);
+    // Build clean trade plan matching the closest actionable OB (same ranking as X-Ray OB Radar)
+    let tradePlan = null;
+    let planRawOb = null;
+    const activeRawOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && o.tests <= 2);
+    const rankedPlans = [];
+    for (const candidate of activeRawOBs) {
+        const plan = buildObTradePlan(candidate, lastPrice, analysis.swingHighs, analysis.swingLows, analysis.resistance, analysis.support, analysis.atr);
+        if (!plan) continue;
+        const rankScore = plan.distPct + (candidate.status === 'fresh' ? 0 : 0.08) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+        rankedPlans.push({ candidate, plan, rankScore });
     }
-    const netMove = effBars.length >= 2 ? Math.abs(effBars[effBars.length - 1].c - effBars[0].o) : 0;
-    const trendCleanliness = pathSum > 0 ? Math.min(100, Math.round((netMove / pathSum) * 100)) : 50;
-
-    // Relative volume (today avg bar vol vs prior days avg bar vol)
-    const todayVolBars = todayBars.filter(b => b.v > 0);
-    const priorVolBars = candlesAll.filter(b => b.ymd < latestYmd && b.v > 0);
-    const todayAvgVol = todayVolBars.length ? todayVolBars.reduce((s, b) => s + b.v, 0) / todayVolBars.length : 0;
-    const priorAvgVol = priorVolBars.length ? priorVolBars.reduce((s, b) => s + b.v, 0) / priorVolBars.length : 0;
-    const relativeVolume = (todayAvgVol > 0 && priorAvgVol > 0) ? r2(todayAvgVol / priorAvgVol) : null;
-
-    // Strength score 0..100
-    let strength = 50;
-    if (aboveVwap === true) strength += 14;
-    else if (aboveVwap === false) strength -= 14;
-    if (trend15m.bull === true) strength += 10;
-    else if (trend15m.bull === false) strength -= 10;
-    if (trend1h.bull === true) strength += 10;
-    else if (trend1h.bull === false) strength -= 10;
-    if (analysis.structure === 'Broke up') strength += 10;
-    else if (analysis.structure === 'Broke down') strength -= 10;
-    strength += Math.max(-12, Math.min(12, changePct * 3));
-    if (analysis.tradeZone?.side === 'BULL') strength += 4;
-    else if (analysis.tradeZone?.side === 'BEAR') strength -= 4;
-    strength = Math.max(5, Math.min(98, Math.round(strength)));
-
-    const strengthBias = strength >= 60 ? 'Bullish' : strength <= 40 ? 'Bearish' : 'Neutral';
-
-    let tradeZoneInfo = null;
-    if (analysis.tradeZone) {
-        const tz = analysis.tradeZone;
-        const stopLiq = tz.side === 'BULL' ? tz.bot : tz.top;
-        const distPct = lastPrice > 0
-            ? r2((Math.min(Math.abs(lastPrice - tz.top), Math.abs(lastPrice - tz.bot)) / lastPrice) * 100)
-            : 0;
-        const inside = lastPrice >= tz.bot && lastPrice <= tz.top;
-        tradeZoneInfo = {
-            side: tz.side,
-            bot: tz.bot,
-            top: tz.top,
-            stopLiquidity: stopLiq,
-            status: tz.status.toUpperCase(),
-            hasFvg: tz.hasFvg,
-            distPct,
-            note: inside
-                ? `Price is inside the ${tz.side === 'BULL' ? 'Bullish' : 'Bearish'} OB zone${tz.hasFvg ? ' with a fair-value gap' : ''}.`
-                : `Zone edge is ${distPct}% away${tz.hasFvg ? ', and the move away from it left a fair-value gap' : ''}.`
+    rankedPlans.sort((a, b) => a.rankScore - b.rankScore);
+    if (rankedPlans.length) {
+        const { candidate, plan } = rankedPlans[0];
+        planRawOb = candidate;
+        tradePlan = {
+            ...plan,
+            bot: candidate.bot,
+            top: candidate.top,
+            status: candidate.status.toUpperCase(),
+            tests: candidate.tests,
+            hasFvg: Boolean(candidate.hasFvg),
+            note: plan.inside
+                ? `Price is inside the ${plan.obSide === 'BULL' ? 'Bullish demand' : 'Bearish supply'} OB (${Number(candidate.bot).toFixed(2)}–${Number(candidate.top).toFixed(2)}).`
+                : `${plan.distPct}% away from ${plan.obSide === 'BULL' ? 'Bullish demand' : 'Bearish supply'} OB — wait near ${Number(plan.entry).toFixed(2)}.`
         };
     }
+
+    // Keep chart clean: show ONLY the primary actionable OB zone
+    const activeChartOBs = mappedOBs.filter(o => o.status !== 'broken');
+    const primaryOb = (planRawOb && activeChartOBs.find(o => o.bot === planRawOb.bot && o.top === planRawOb.top && o.side === planRawOb.side))
+        || activeChartOBs.find(o => o.isTradeZone);
+    if (primaryOb) primaryOb.isTradeZone = true;
+    const cleanChartOBs = primaryOb ? [primaryOb] : activeChartOBs.slice(-1);
+
+    const strengthBias = tradePlan
+        ? (tradePlan.action === 'BUY' ? 'Bullish Setup' : 'Bearish Setup')
+        : (aboveVwap === true && trend15m.bull === true ? 'Bullish' : (aboveVwap === false && trend15m.bull === false ? 'Bearish' : 'Neutral'));
 
     const result = {
         symbol: matchedStock.symbol,
@@ -2338,28 +2395,16 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         fetchedAt: new Date().toISOString(),
         candles: visibleCandles,
         dayCounts,
-        orderBlocks: mappedOBs,
-        liquidity: analysis.liquidity,
+        orderBlocks: cleanChartOBs,
+        tradePlan,
         strength: {
-            score: strength,
             bias: strengthBias
-        },
-        levels: {
-            status: tradeZoneInfo ? tradeZoneInfo.status : 'WATCH',
-            resistance: analysis.resistance,
-            lastPrice,
-            support: analysis.support,
-            orderBlock: tradeZoneInfo
         },
         reading: {
             structure: analysis.structure,
             vsVwap: lastVwap != null ? { above: aboveVwap, vwap: lastVwap } : null,
             trend15m: trend15m.dir,
-            trend1h: trend1h.dir,
-            moveVsNormalDay,
-            trendCleanliness,
-            relativeVolume,
-            atr: analysis.atr
+            trend1h: trend1h.dir
         }
     };
 
@@ -2373,7 +2418,7 @@ const OB_SCAN_TTL_MS = 60000;
 
 async function scanNifty50OrderBlocks(opts = {}) {
     const tf = ['5m', '15m', '1h'].includes(opts.timeframe) ? opts.timeframe : '5m';
-    const maxDistPct = Math.max(0.1, Math.min(5, Number(opts.maxDistPct) || 1.0));
+    const maxDistPct = Math.max(0.05, Math.min(1.0, Number(opts.maxDistPct) || 0.25));
     const token = opts.token || '';
     const force = Boolean(opts.force);
     const cacheKey = `${tf}:${token ? token.slice(-8) : 'no-tok'}`;
@@ -2423,7 +2468,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 const visStartIdx = Math.max(0, candles.findIndex(c => c.ymd >= firstYmd));
 
                 const analysis = detectStockOrderBlocksAndLiquidity(candles, visStartIdx, []);
-                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken');
+                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && o.tests <= 2);
                 if (!unbrokenOBs.length) return null;
 
                 const vwapSeries = computeSessionVWAP(candles);
@@ -2455,38 +2500,47 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     }
                 }
 
-                // Find closest unbroken Order Block to current price
+                // Keep ONLY stocks with a valid trading opportunity near the Order Block (no far away or broken-side stocks)
                 let best = null;
                 for (const ob of unbrokenOBs) {
-                    const inside = price >= ob.bot && price <= ob.top;
-                    const distPts = inside ? 0 : Math.min(Math.abs(price - ob.top), Math.abs(price - ob.bot));
-                    const distPct = price > 0 ? r2((distPts / price) * 100) : 999;
-                    const position = inside
-                        ? 'INSIDE'
-                        : price > ob.top ? 'ABOVE' : 'BELOW';
-                    const rankScore = distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0);
+                    const plan = buildObTradePlan(
+                        ob,
+                        price,
+                        analysis.swingHighs,
+                        analysis.swingLows,
+                        analysis.resistance,
+                        analysis.support,
+                        analysis.atr
+                    );
+                    if (!plan || plan.distPct > 1.0) continue;
+                    const rankScore = plan.distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
                     if (!best || rankScore < best.rankScore) {
-                        best = { ob, inside, distPct, position, rankScore };
+                        best = { ob, plan, rankScore };
                     }
                 }
                 if (!best) return null;
 
-                const { ob, inside, distPct, position } = best;
+                const { ob, plan } = best;
                 return {
                     symbol: st.symbol,
                     sector: st.sector,
                     price,
                     changePct,
+                    action: plan.action,
                     obSide: ob.side,
                     bot: ob.bot,
                     top: ob.top,
-                    stopLiquidity: ob.side === 'BULL' ? ob.bot : ob.top,
+                    entry: plan.entry,
+                    sl: plan.sl,
+                    target: plan.target,
+                    rr: plan.rr,
+                    opportunity: plan.opportunity,
                     status: ob.status.toUpperCase(),
                     tests: ob.tests,
                     hasFvg: Boolean(ob.hasFvg),
-                    inside,
-                    distPct,
-                    position,
+                    inside: plan.inside,
+                    distPct: plan.distPct,
+                    position: plan.position,
                     aboveVwap: lastVwap != null ? price >= lastVwap : null,
                     vwap: lastVwap
                 };
@@ -2501,7 +2555,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 if (a.inside !== b.inside) return a.inside ? -1 : 1;
                 if (a.distPct !== b.distPct) return a.distPct - b.distPct;
                 if (a.status !== b.status) return a.status === 'FRESH' ? -1 : 1;
-                return Math.abs(b.changePct) - Math.abs(a.changePct);
+                return b.rr - a.rr;
             });
 
         const entry = {
