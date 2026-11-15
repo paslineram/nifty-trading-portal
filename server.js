@@ -219,7 +219,18 @@ app.get('/api/market', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     try {
         const force = req.query.force === '1';
-        const data = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, force);
+        const currentDay = getUpstoxTradingDayIST();
+        const needsProfileCheck = Boolean(
+            appConfig.upstoxToken &&
+            (!upstoxState.checkedAt || upstoxState.checkedDay !== currentDay)
+        );
+        const [data] = await Promise.all([
+            getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, force),
+            needsProfileCheck ? fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null) : Promise.resolve(null)
+        ]);
+        if (data.source === 'upstox-live' && appConfig.upstoxToken && !upstoxState.verified) {
+            await fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null);
+        }
         await Promise.all([
             processSnapshotForTelegram(data, appConfig).catch(() => null),
             processSnapshotForAutoOrder(data, appConfig).catch(() => null)
@@ -317,7 +328,7 @@ function getUpstoxDailyStatus() {
         reason = `Upstox daily token rejected (${upstoxState.error || 'HTTP 401'}) — update today's token`;
     } else if (isStaleDay) {
         reason = `Upstox token from ${tokenDay} expired (03:30 IST daily reset) — update today's token`;
-    } else if (tokenDay && tokenDay !== currentDay) {
+    } else if (tokenDay && tokenDay !== currentDay && !upstoxState.verified) {
         reason = `Token saved on ${tokenDay} — daily update recommended for ${currentDay}`;
     }
     return {
@@ -387,7 +398,7 @@ async function fetchUpstoxProfile(token) {
                 checkedAt: new Date().toISOString(),
                 checkedDay: currentDay
             };
-            if (!appConfig.upstoxTokenDay) {
+            if (!appConfig.upstoxTokenDay || appConfig.upstoxTokenDay !== currentDay) {
                 appConfig.upstoxTokenDay = currentDay;
                 if (!appConfig.upstoxTokenUpdatedAt) appConfig.upstoxTokenUpdatedAt = upstoxState.checkedAt;
                 saveAppConfig();
@@ -978,6 +989,8 @@ async function runBackgroundSignalMonitor() {
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {
         console.log(`Nifty Trading Portal running on port ${PORT}`);
+        if (appConfig.upstoxToken) fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null);
+        if (appConfig.telegramBotToken) ensureTelegramVerified().catch(() => null);
         setTimeout(() => { runBackgroundSignalMonitor(); }, 3000);
         setInterval(() => { runBackgroundSignalMonitor(); }, 30000);
     });

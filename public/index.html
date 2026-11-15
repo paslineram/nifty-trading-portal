@@ -46,6 +46,12 @@ ul.chk{list-style:none;font-size:12px;line-height:1.55}
 form.f{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
 form.f label{font-size:11px;color:var(--mut);display:flex;flex-direction:column;gap:3px;flex:1;min-width:160px}
 input,select{font:inherit;padding:7px 10px;border:1px solid var(--bd);border-radius:6px;background:var(--card);color:var(--fg);width:100%}
+input.input-saved{border-color:#86efac;background:#f0fdf4}
+.tok-status{font-weight:700;font-size:10px;margin-left:4px}
+.sync-banner{padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);font-size:12px;margin-top:10px;line-height:1.45}
+.sync-banner.ok{border-color:#86efac;background:#f0fdf4;color:#14532d}
+.sync-banner.warn{border-color:#fca5a5;background:#fef2f2;color:#7f1d1d}
+@media(max-width:640px){form.f label{min-width:100%}header{gap:4px}nav.tabs button{padding:6px 11px;font-size:12px}}
 button.btn{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:bold}
 button.btn:hover{background:var(--accent-hover)}
 .stats{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
@@ -320,14 +326,15 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <h3>Portal, Telegram &amp; Order Execution Settings</h3>
         <span id="settings-ord-badge" class="badge mid">DRY_RUN</span>
       </div>
-      <p class="sub" style="margin-top:4px">Configure all portal settings, broker tokens, Telegram signal notifications, and order execution rules in one place. Your edits are preserved across tab switches.</p>
+      <p class="sub" style="margin-top:4px">Configure all portal settings, broker tokens, Telegram signal notifications, and order execution rules in one place. Tokens are stored securely on the server across all devices and browsers.</p>
+      <div id="settings-sync-banner" class="sync-banner" style="display:none"></div>
       <form class="f" style="margin-top:14px" onsubmit="saveAllSettings(event)">
         <div style="width:100%;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
           <h4 style="margin:0">1. Portal &amp; Broker <small style="text-transform:none;font-weight:400">(Upstox token updates daily)</small></h4>
           <span id="settings-upx-daily-badge" class="badge mid">DAILY TOKEN</span>
           <small id="settings-upx-daily-note" class="sub"></small>
         </div>
-        <label>Upstox Access Token (Daily) <input type="password" id="set-token" placeholder="Paste today's Upstox token"></label>
+        <label><span>Upstox Access Token (Daily) <span id="lbl-upx-status" class="tok-status"></span></span><input type="password" id="set-token" placeholder="Paste today's Upstox token" autocomplete="off"></label>
         <label>Signal Instrument <select id="set-sym"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
         <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3" min="1" max="10"></label>
 
@@ -335,7 +342,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
           <h4 style="margin:0">2. Telegram Signal Notifications</h4>
           <span id="settings-tg-perm-badge" class="badge up">PERMANENT · NO EXPIRY</span>
         </div>
-        <label>Telegram Bot Token <input type="password" id="tg-token" placeholder="Paste BotFather token"></label>
+        <label><span>Telegram Bot Token <span id="lbl-tg-status" class="tok-status"></span></span><input type="password" id="tg-token" placeholder="Paste BotFather token" autocomplete="off"></label>
         <label>Telegram Chat ID <input type="text" id="tg-chatid" placeholder="e.g. 123456789 or -100..."></label>
         <label>Telegram Alerts <select id="tg-enabled"><option value="true">Enabled</option><option value="false">Paused</option></select></label>
         <label>Entry Signals <select id="tg-entries"><option value="true">Notify Entries</option><option value="false">Mute</option></select></label>
@@ -347,7 +354,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Auto-Execute Signals <select id="set-ord-auto"><option value="false">OFF (Manual Check / Click Only)</option><option value="true">ON (Auto-Send New Signals)</option></select></label>
         <label>Default Product <select id="set-ord-prod"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
         <label>Default Lots <input type="number" id="set-ord-lots" value="1" min="1" max="50"></label>
-        <label>Upstox Sandbox Token <input type="password" id="set-sandbox-token" placeholder="Optional Sandbox API token"></label>
+        <label><span>Upstox Sandbox Token <span id="lbl-sbx-status" class="tok-status"></span></span><input type="password" id="set-sandbox-token" placeholder="Optional Sandbox API token" autocomplete="off"></label>
 
         <div style="width:100%;display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
           <button id="set-save-all-btn" class="btn" style="flex:1;min-width:180px">Save All Settings</button>
@@ -428,6 +435,9 @@ const dirtySettingsFields = new Set();
 let settingsHydratedFromServer = false;
 let settingsAutoSyncedOnce = false;
 let serverHasTelegramCreds = false;
+let serverHasUpstoxToken = false;
+let serverHasUpstoxDailyNeed = false;
+let serverUpstoxTokenMasked = '';
 
 function getUpstoxTradingDayIST(date = new Date()) {
   const shifted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
@@ -2448,6 +2458,9 @@ function renderSettingsResult(data) {
   if (cfg.instrument) setVal('set-sym', cfg.instrument);
   if (cfg.maxTrades != null) setVal('set-maxtrades', cfg.maxTrades);
   serverHasTelegramCreds = Boolean(cfg.hasTelegramToken && cfg.telegramChatId);
+  serverHasUpstoxToken = Boolean(cfg.hasUpstoxToken);
+  serverHasUpstoxDailyNeed = Boolean(daily.needsDailyUpdate);
+  serverUpstoxTokenMasked = cfg.upstoxTokenMasked || '';
   setVal('tg-chatid', cfg.telegramChatId || '');
   setVal('tg-enabled', String(serverHasTelegramCreds ? Boolean(cfg.telegramEnabled) : true));
   setVal('tg-entries', String(cfg.telegramNotifyEntries !== false));
@@ -2458,10 +2471,13 @@ function renderSettingsResult(data) {
   setVal('set-ord-prod', cfg.upstoxOrderProduct || 'I');
   setVal('set-ord-lots', cfg.upstoxOrderLots || 1);
 
-  const syncTokenField = (id, hasToken, masked, savedTok, fallbackPlaceholder) => {
+  const syncTokenField = (id, hasToken, masked, savedTok, fallbackPlaceholder, isSavedOk = hasToken) => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.placeholder = hasToken ? `Saved (${masked}) — paste new token to replace` : fallbackPlaceholder;
+    el.classList.toggle('input-saved', Boolean(hasToken && isSavedOk));
+    el.placeholder = hasToken
+      ? `Active (${masked}) — leave blank unless replacing`
+      : fallbackPlaceholder;
     if (!dirtySettingsFields.has(id) && document.activeElement !== el && !el.value && hasToken && savedTok) {
       el.value = savedTok;
     }
@@ -2469,16 +2485,68 @@ function renderSettingsResult(data) {
   const upxInput = document.getElementById('set-token');
   if (upxInput) {
     if (daily.needsDailyUpdate && cfg.hasUpstoxToken) {
+      upxInput.classList.remove('input-saved');
       upxInput.placeholder = `Expired (${daily.tokenDay || 'old'}) — paste today's Upstox token`;
       if (!dirtySettingsFields.has('set-token') && document.activeElement !== upxInput && savedUpx.tokenExpired) {
         upxInput.value = '';
       }
     } else {
-      syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, savedUpx.tokenExpired ? '' : savedUpx.upstoxToken, "Paste today's Upstox token");
+      syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, savedUpx.tokenExpired ? '' : savedUpx.upstoxToken, "Paste today's Upstox token", !daily.needsDailyUpdate);
     }
   }
-  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, savedTg.telegramBotToken, 'Paste BotFather token');
-  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, savedUpx.upstoxSandboxToken, 'Optional Sandbox API token');
+  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, savedTg.telegramBotToken, 'Paste BotFather token', cfg.hasTelegramToken);
+  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, savedUpx.upstoxSandboxToken, 'Optional Sandbox API token', cfg.hasUpstoxSandboxToken);
+
+  const lblUpx = document.getElementById('lbl-upx-status');
+  if (lblUpx) {
+    if (cfg.hasUpstoxToken && !daily.needsDailyUpdate) {
+      lblUpx.className = 'tok-status upt';
+      lblUpx.textContent = `✓ Active on server (${cfg.upstoxTokenMasked})`;
+    } else if (cfg.hasUpstoxToken && daily.needsDailyUpdate) {
+      lblUpx.className = 'tok-status dnt';
+      lblUpx.textContent = `⚠ Daily update needed (${cfg.upstoxTokenMasked})`;
+    } else {
+      lblUpx.className = 'tok-status dnt';
+      lblUpx.textContent = 'Not set';
+    }
+  }
+  const lblTg = document.getElementById('lbl-tg-status');
+  if (lblTg) {
+    if (cfg.hasTelegramToken) {
+      lblTg.className = 'tok-status upt';
+      lblTg.textContent = tg.verified && tg.bot?.username
+        ? `✓ Verified @${tg.bot.username} (${cfg.telegramTokenMasked})`
+        : `✓ Saved on server (${cfg.telegramTokenMasked})`;
+    } else {
+      lblTg.className = 'tok-status';
+      lblTg.textContent = '';
+    }
+  }
+  const lblSbx = document.getElementById('lbl-sbx-status');
+  if (lblSbx) {
+    if (cfg.hasUpstoxSandboxToken) {
+      lblSbx.className = 'tok-status upt';
+      lblSbx.textContent = `✓ Saved (${cfg.upstoxSandboxTokenMasked})`;
+    } else {
+      lblSbx.className = 'tok-status';
+      lblSbx.textContent = '';
+    }
+  }
+  const syncBanner = document.getElementById('settings-sync-banner');
+  if (syncBanner) {
+    syncBanner.style.display = 'block';
+    if (cfg.hasUpstoxToken && !daily.needsDailyUpdate) {
+      syncBanner.className = 'sync-banner ok';
+      const upxUser = p?.user_id ? ` (@${escHtml(p.user_id)})` : '';
+      const tgInfo = cfg.hasTelegramToken
+        ? (tg.verified && tg.bot?.username ? `Telegram <b>@${escHtml(tg.bot.username)}</b> verified.` : 'Telegram token saved.')
+        : 'Telegram not configured yet.';
+      syncBanner.innerHTML = `<b>✓ Server Credentials Active:</b> Upstox token <code>${escHtml(cfg.upstoxTokenMasked)}</code>${upxUser} is active for <b>${escHtml(daily.tokenDay || daily.currentDay || 'today')}</b> &middot; ${tgInfo} Token boxes may look empty on a new phone/browser — leave them blank unless you want to replace a token.`;
+    } else {
+      syncBanner.className = 'sync-banner warn';
+      syncBanner.innerHTML = `<b>Upstox Daily Token Update Required:</b> ${escHtml(daily.reason || 'Paste today\'s Upstox token below and click Update Daily Upstox Token.')}`;
+    }
+  }
 
   const dailyBadge = document.getElementById('settings-upx-daily-badge');
   const dailyNote = document.getElementById('settings-upx-daily-note');
@@ -2625,6 +2693,15 @@ async function saveDailyUpstoxOnly(btn) {
   const tok = document.getElementById('set-token').value.trim();
   const sTok = document.getElementById('set-sandbox-token').value.trim();
   if (!tok && !sTok) {
+    if (serverHasUpstoxToken && !serverHasUpstoxDailyNeed) {
+      await loadSettings();
+      if (msg) {
+        msg.style.display = 'block';
+        msg.className = 'upt';
+        msg.textContent = `Upstox token (${serverUpstoxTokenMasked || 'saved'}) is already active on server — leave blank unless replacing.`;
+      }
+      return;
+    }
     if (msg) {
       msg.style.display = 'block';
       msg.className = 'dnt';
