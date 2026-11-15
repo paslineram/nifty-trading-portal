@@ -140,7 +140,7 @@ function formatSignalMessage(inst, sig, eventType) {
 
 async function verifyTelegramBot(token) {
     if (!token) {
-        return { verified: false, bot: null, error: null, checkedAt: null };
+        return { verified: false, bot: null, error: null, httpStatus: null, checkedAt: null };
     }
     try {
         const resp = await fetch(`${TELEGRAM_API}/bot${encodeURIComponent(token)}/getMe`, {
@@ -158,6 +158,7 @@ async function verifyTelegramBot(token) {
                     firstName: b.first_name || 'Telegram Bot'
                 },
                 error: null,
+                httpStatus: resp.status,
                 checkedAt: new Date().toISOString()
             };
         }
@@ -165,6 +166,7 @@ async function verifyTelegramBot(token) {
             verified: false,
             bot: null,
             error: payload?.description || `Telegram API returned HTTP ${resp.status}`,
+            httpStatus: resp.status,
             checkedAt: new Date().toISOString()
         };
     } catch (err) {
@@ -172,6 +174,7 @@ async function verifyTelegramBot(token) {
             verified: false,
             bot: null,
             error: err?.message || 'Could not reach Telegram Bot API',
+            httpStatus: null,
             checkedAt: new Date().toISOString()
         };
     }

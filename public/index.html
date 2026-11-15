@@ -304,12 +304,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       </div>
       <p class="sub" style="margin-top:4px">Configure all portal settings, broker tokens, Telegram signal notifications, and order execution rules in one place. Your edits are preserved across tab switches.</p>
       <form class="f" style="margin-top:14px" onsubmit="saveAllSettings(event)">
-        <div style="width:100%;margin-bottom:6px"><h4>1. Portal &amp; Broker</h4></div>
-        <label>Upstox Access Token <input type="password" id="set-token" placeholder="Paste today's token"></label>
+        <div style="width:100%;margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <h4 style="margin:0">1. Portal &amp; Broker <small style="text-transform:none;font-weight:400">(Upstox token updates daily)</small></h4>
+          <span id="settings-upx-daily-badge" class="badge mid">DAILY TOKEN</span>
+          <small id="settings-upx-daily-note" class="sub"></small>
+        </div>
+        <label>Upstox Access Token (Daily) <input type="password" id="set-token" placeholder="Paste today's Upstox token"></label>
         <label>Signal Instrument <select id="set-sym"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
         <label>Max Trades / Day <input type="number" id="set-maxtrades" value="3" min="1" max="10"></label>
 
-        <div style="width:100%;margin:12px 0 6px"><h4>2. Telegram Signal Notifications</h4></div>
+        <div style="width:100%;margin:12px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <h4 style="margin:0">2. Telegram Signal Notifications</h4>
+          <span id="settings-tg-perm-badge" class="badge up">PERMANENT · NO EXPIRY</span>
+        </div>
         <label>Telegram Bot Token <input type="password" id="tg-token" placeholder="Paste BotFather token"></label>
         <label>Telegram Chat ID <input type="text" id="tg-chatid" placeholder="e.g. 123456789 or -100..."></label>
         <label>Telegram Alerts <select id="tg-enabled"><option value="true">Enabled</option><option value="false">Paused</option></select></label>
@@ -325,7 +332,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Upstox Sandbox Token <input type="password" id="set-sandbox-token" placeholder="Optional Sandbox API token"></label>
 
         <div style="width:100%;display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
-          <button id="set-save-all-btn" class="btn" style="flex:1;min-width:200px">Save All Settings</button>
+          <button id="set-save-all-btn" class="btn" style="flex:1;min-width:180px">Save All Settings</button>
+          <button type="button" id="set-upx-daily-btn" class="btn" style="background:var(--mid);border-color:var(--mid)" onclick="saveDailyUpstoxOnly(this)">Update Daily Upstox Token</button>
           <button type="button" class="btn" style="background:var(--px);border-color:var(--px)" onclick="sendTelegramTest(this)">Test Telegram</button>
           <button type="button" class="btn" style="background:var(--up);border-color:var(--up)" onclick="pushLatestSignalToTelegram(this)">Push Latest Signal</button>
         </div>
@@ -389,7 +397,9 @@ function updateRefreshStatus() {
   });
 }
 
-const SETTINGS_STORAGE_KEY = 'paslinSavedSettings';
+const TELEGRAM_STORAGE_KEY = 'paslinTelegramCreds';
+const UPSTOX_STORAGE_KEY = 'paslinUpstoxDaily';
+const LEGACY_SETTINGS_KEY = 'paslinSavedSettings';
 const SETTINGS_DRAFT_KEY = 'paslinSettingsDraft';
 const SETTINGS_FIELD_IDS = [
   'set-token', 'set-sym', 'set-maxtrades',
@@ -400,9 +410,14 @@ const dirtySettingsFields = new Set();
 let settingsHydratedFromServer = false;
 let settingsAutoSyncedOnce = false;
 
-function readSavedSettingsStore() {
+function getUpstoxTradingDayIST(date = new Date()) {
+  const shifted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
+}
+
+function readJsonStore(key) {
   try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     const parsed = raw ? JSON.parse(raw) : {};
     return (parsed && typeof parsed === 'object') ? parsed : {};
   } catch (_) {
@@ -410,12 +425,84 @@ function readSavedSettingsStore() {
   }
 }
 
-function writeSavedSettingsStore(patch) {
+function migrateLegacySettingsStore() {
   try {
-    const cur = readSavedSettingsStore();
-    const next = { ...cur, ...patch };
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+    const legacy = readJsonStore(LEGACY_SETTINGS_KEY);
+    if (!Object.keys(legacy).length) return;
+    const tgCur = readJsonStore(TELEGRAM_STORAGE_KEY);
+    const upxCur = readJsonStore(UPSTOX_STORAGE_KEY);
+    const tgKeys = ['telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
+    const upxKeys = ['upstoxToken', 'upstoxSandboxToken', 'instrument', 'maxTrades', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'];
+    let tgChanged = false, upxChanged = false;
+    tgKeys.forEach(k => {
+      if (legacy[k] !== undefined && tgCur[k] === undefined) { tgCur[k] = legacy[k]; tgChanged = true; }
+    });
+    upxKeys.forEach(k => {
+      if (legacy[k] !== undefined && upxCur[k] === undefined) {
+        upxCur[k] = legacy[k];
+        if (k === 'upstoxToken' && !upxCur.upstoxTokenDay) upxCur.upstoxTokenDay = getUpstoxTradingDayIST();
+        upxChanged = true;
+      }
+    });
+    if (tgChanged) localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(tgCur));
+    if (upxChanged) localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(upxCur));
+    localStorage.removeItem(LEGACY_SETTINGS_KEY);
   } catch (_) {}
+}
+
+function readTelegramCredsStore() {
+  migrateLegacySettingsStore();
+  return readJsonStore(TELEGRAM_STORAGE_KEY);
+}
+
+function writeTelegramCredsStore(patch) {
+  try {
+    const cur = readTelegramCredsStore();
+    const tgKeys = ['telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
+    const next = { ...cur };
+    tgKeys.forEach(k => {
+      if (patch[k] !== undefined) next[k] = patch[k];
+    });
+    localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(next));
+  } catch (_) {}
+}
+
+function readUpstoxDailyStore() {
+  migrateLegacySettingsStore();
+  const data = readJsonStore(UPSTOX_STORAGE_KEY);
+  const today = getUpstoxTradingDayIST();
+  const tokenExpired = Boolean(data.upstoxToken && data.upstoxTokenDay && data.upstoxTokenDay !== today);
+  return { ...data, currentDay: today, tokenExpired };
+}
+
+function writeUpstoxDailyStore(patch, markTokenToday = false) {
+  try {
+    const cur = readJsonStore(UPSTOX_STORAGE_KEY);
+    const upxKeys = ['upstoxToken', 'upstoxSandboxToken', 'instrument', 'maxTrades', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'];
+    const next = { ...cur };
+    upxKeys.forEach(k => {
+      if (patch[k] !== undefined) next[k] = patch[k];
+    });
+    if (patch.upstoxToken || markTokenToday) {
+      next.upstoxTokenDay = getUpstoxTradingDayIST();
+    }
+    localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(next));
+  } catch (_) {}
+}
+
+function readSavedSettingsStore() {
+  const tg = readTelegramCredsStore();
+  const upx = readUpstoxDailyStore();
+  return {
+    ...tg,
+    ...upx,
+    upstoxToken: upx.tokenExpired ? '' : (upx.upstoxToken || '')
+  };
+}
+
+function writeSavedSettingsStore(patch) {
+  writeTelegramCredsStore(patch);
+  writeUpstoxDailyStore(patch);
 }
 
 function readDraftStore() {
@@ -458,22 +545,23 @@ function bindSettingsDirtyListeners() {
 }
 
 function restoreSettingsInputsFromBrowser() {
-  const saved = readSavedSettingsStore();
+  const tg = readTelegramCredsStore();
+  const upx = readUpstoxDailyStore();
   const map = {
-    'set-token': saved.upstoxToken,
-    'set-sym': saved.instrument,
-    'set-maxtrades': saved.maxTrades,
-    'tg-token': saved.telegramBotToken,
-    'tg-chatid': saved.telegramChatId,
-    'tg-enabled': saved.telegramEnabled !== undefined ? String(Boolean(saved.telegramEnabled)) : undefined,
-    'tg-entries': saved.telegramNotifyEntries !== undefined ? String(Boolean(saved.telegramNotifyEntries)) : undefined,
-    'tg-exits': saved.telegramNotifyExits !== undefined ? String(Boolean(saved.telegramNotifyExits)) : undefined,
-    'tg-monitor': saved.telegramAutoMonitor !== undefined ? String(Boolean(saved.telegramAutoMonitor)) : undefined,
-    'set-ord-mode': saved.upstoxOrderMode,
-    'set-ord-auto': saved.upstoxAutoOrder !== undefined ? String(Boolean(saved.upstoxAutoOrder)) : undefined,
-    'set-ord-prod': saved.upstoxOrderProduct,
-    'set-ord-lots': saved.upstoxOrderLots,
-    'set-sandbox-token': saved.upstoxSandboxToken
+    'set-token': upx.tokenExpired ? '' : upx.upstoxToken,
+    'set-sym': upx.instrument,
+    'set-maxtrades': upx.maxTrades,
+    'tg-token': tg.telegramBotToken,
+    'tg-chatid': tg.telegramChatId,
+    'tg-enabled': tg.telegramEnabled !== undefined ? String(Boolean(tg.telegramEnabled)) : undefined,
+    'tg-entries': tg.telegramNotifyEntries !== undefined ? String(Boolean(tg.telegramNotifyEntries)) : undefined,
+    'tg-exits': tg.telegramNotifyExits !== undefined ? String(Boolean(tg.telegramNotifyExits)) : undefined,
+    'tg-monitor': tg.telegramAutoMonitor !== undefined ? String(Boolean(tg.telegramAutoMonitor)) : undefined,
+    'set-ord-mode': upx.upstoxOrderMode,
+    'set-ord-auto': upx.upstoxAutoOrder !== undefined ? String(Boolean(upx.upstoxAutoOrder)) : undefined,
+    'set-ord-prod': upx.upstoxOrderProduct,
+    'set-ord-lots': upx.upstoxOrderLots,
+    'set-sandbox-token': upx.upstoxSandboxToken
   };
   Object.entries(map).forEach(([id, val]) => {
     if (val === undefined || val === null || val === '') return;
@@ -514,16 +602,11 @@ function showPortal() {
 function handleLogout() {
   try {
     localStorage.removeItem('paslinAuth');
-    localStorage.removeItem(SETTINGS_STORAGE_KEY);
     clearDraftStore();
   } catch (_) {}
   dirtySettingsFields.clear();
   settingsHydratedFromServer = false;
   settingsAutoSyncedOnce = false;
-  ['set-token', 'tg-token', 'set-sandbox-token', 'tg-chatid'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
   document.getElementById('portal-container').style.display = 'none';
   document.getElementById('login-container').style.display = 'flex';
 }
@@ -882,8 +965,13 @@ function renderLive(m) {
     const syncedAt = m.fetchedAt
       ? new Date(m.fetchedAt).toLocaleTimeString('en-GB', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + ' IST'
       : (m.asOf || '');
-    noticeEl.className = 'sub';
-    noticeEl.textContent = `${m.notice || ''} Updated ${syncedAt}.`.trim();
+    if (m.upstoxDaily?.needsDailyUpdate) {
+      noticeEl.className = 'mid';
+      noticeEl.innerHTML = `${escHtml(m.notice || '')} Updated ${escHtml(syncedAt)}. &middot; <b class="dnt">${escHtml(m.upstoxDaily.reason)}</b> <button type="button" class="btn" style="padding:2px 8px;font-size:11px;margin-left:6px" onclick="openSettingsTab()">Update Daily Token</button>`;
+    } else {
+      noticeEl.className = 'sub';
+      noticeEl.textContent = `${m.notice || ''} Updated ${syncedAt}.`.trim();
+    }
   }
   document.getElementById('live-grid').innerHTML =
     `<div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
@@ -1366,10 +1454,11 @@ function renderTelegramLogSection(data) {
 
   if (badge) { badge.className = badgeClass; badge.textContent = badgeText; }
   if (setBadge) {
-    setBadge.className = tg.verified ? 'badge up' : cfg.hasTelegramToken ? 'badge dn' : 'badge mid';
+    const netErr = !tg.verified && cfg.hasTelegramToken && (!tg.httpStatus || (tg.httpStatus !== 401 && tg.httpStatus !== 404));
+    setBadge.className = tg.verified ? 'badge up' : netErr ? 'badge mid' : cfg.hasTelegramToken ? 'badge dn' : 'badge mid';
     setBadge.textContent = tg.verified && tg.bot?.username
       ? `VERIFIED · @${tg.bot.username}`
-      : (cfg.hasTelegramToken ? 'BOT TOKEN INVALID' : 'TOKEN NOT SET');
+      : (netErr ? 'SAVED · RETRYING' : cfg.hasTelegramToken ? 'BOT TOKEN INVALID' : 'TOKEN NOT SET');
   }
 
   if (info) {
@@ -1759,9 +1848,11 @@ function renderSettingsResult(data) {
   settingsHydratedFromServer = true;
   const cfg = data.appConfig;
   const upx = data.upstox || {};
+  const daily = data.upstoxDaily || {};
   const tg = data.telegram || {};
   const p = upx.profile;
-  const saved = readSavedSettingsStore();
+  const savedTg = readTelegramCredsStore();
+  const savedUpx = readUpstoxDailyStore();
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
@@ -1790,9 +1881,52 @@ function renderSettingsResult(data) {
       el.value = savedTok;
     }
   };
-  syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, saved.upstoxToken, "Paste today's token");
-  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, saved.telegramBotToken, 'Paste BotFather token');
-  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, saved.upstoxSandboxToken, 'Optional Sandbox API token');
+  const upxInput = document.getElementById('set-token');
+  if (upxInput) {
+    if (daily.needsDailyUpdate && cfg.hasUpstoxToken) {
+      upxInput.placeholder = `Expired (${daily.tokenDay || 'old'}) — paste today's Upstox token`;
+      if (!dirtySettingsFields.has('set-token') && document.activeElement !== upxInput && savedUpx.tokenExpired) {
+        upxInput.value = '';
+      }
+    } else {
+      syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, savedUpx.tokenExpired ? '' : savedUpx.upstoxToken, "Paste today's Upstox token");
+    }
+  }
+  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, savedTg.telegramBotToken, 'Paste BotFather token');
+  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, savedUpx.upstoxSandboxToken, 'Optional Sandbox API token');
+
+  const dailyBadge = document.getElementById('settings-upx-daily-badge');
+  const dailyNote = document.getElementById('settings-upx-daily-note');
+  if (dailyBadge) {
+    if (upx.verified && !daily.needsDailyUpdate) {
+      dailyBadge.className = 'badge up';
+      dailyBadge.textContent = `ACTIVE · ${daily.tokenDay || daily.currentDay || 'TODAY'}`;
+    } else if (daily.needsDailyUpdate) {
+      dailyBadge.className = 'badge dn';
+      dailyBadge.textContent = cfg.hasUpstoxToken ? 'DAILY UPDATE NEEDED' : 'TOKEN REQUIRED TODAY';
+    } else {
+      dailyBadge.className = 'badge mid';
+      dailyBadge.textContent = `DAY ${daily.currentDay || ''}`.trim();
+    }
+  }
+  if (dailyNote) {
+    dailyNote.className = daily.needsDailyUpdate ? 'dnt' : 'sub';
+    dailyNote.textContent = daily.reason || 'Upstox tokens reset daily at 03:30 IST.';
+  }
+
+  const tgPermBadge = document.getElementById('settings-tg-perm-badge');
+  if (tgPermBadge) {
+    if (tg.verified && cfg.telegramChatId) {
+      tgPermBadge.className = 'badge up';
+      tgPermBadge.textContent = `PERMANENT · @${tg.bot?.username || 'VERIFIED'}`;
+    } else if (cfg.hasTelegramToken && cfg.telegramChatId) {
+      tgPermBadge.className = 'badge up';
+      tgPermBadge.textContent = 'PERMANENT · SAVED';
+    } else {
+      tgPermBadge.className = 'badge mid';
+      tgPermBadge.textContent = 'PERMANENT · NO EXPIRY';
+    }
+  }
 
   const ordBadge = document.getElementById('settings-ord-badge');
   if (ordBadge) {
@@ -1806,7 +1940,7 @@ function renderSettingsResult(data) {
     badge.textContent = 'UPSTOX VERIFIED';
   } else if (cfg.hasUpstoxToken) {
     badge.className = 'badge dn';
-    badge.textContent = 'UPSTOX NOT VERIFIED';
+    badge.textContent = daily.isUnauthorized ? 'DAILY TOKEN EXPIRED' : 'UPSTOX NOT VERIFIED';
   } else {
     badge.className = 'badge mid';
     badge.textContent = 'TOKEN NOT SET';
@@ -1837,10 +1971,10 @@ function renderSettingsResult(data) {
 
   html += `<div class="sc"><h4>Saved Portal Configuration</h4>
     <table>
-      <tr><td style="width:28%">Upstox Token</td><td><code>${escHtml(cfg.hasUpstoxToken ? cfg.upstoxTokenMasked : 'Not set')}</code></td></tr>
+      <tr><td style="width:28%">Upstox Token (Daily)</td><td><code>${escHtml(cfg.hasUpstoxToken ? cfg.upstoxTokenMasked : 'Not set')}</code> <small class="${daily.needsDailyUpdate ? 'dnt' : 'upt'}">(${escHtml(daily.reason || '-')})</small></td></tr>
       <tr><td>Signal Instrument</td><td><b>${escHtml(cfg.instrument === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : cfg.instrument)}</b></td></tr>
       <tr><td>Max Trades / Day</td><td>${escHtml(cfg.maxTrades)}</td></tr>
-      <tr><td>Telegram Alerts</td><td><b>${cfg.telegramEnabled ? 'Enabled' : 'Paused'}</b> (${tg.verified && tg.bot?.username ? '@' + escHtml(tg.bot.username) : (cfg.hasTelegramToken ? 'Token set' : 'Token not set')})</td></tr>
+      <tr><td>Telegram Alerts (No Expiry)</td><td><b>${cfg.telegramEnabled ? 'Enabled' : 'Paused'}</b> (${tg.verified && tg.bot?.username ? '@' + escHtml(tg.bot.username) : (cfg.hasTelegramToken ? 'Token saved' : 'Token not set')})</td></tr>
       <tr><td>Telegram Chat ID</td><td><code>${escHtml(cfg.telegramChatId || 'Not set')}</code></td></tr>
       <tr><td>Order Execution Mode</td><td><b>${escHtml(cfg.upstoxOrderMode || 'DRY_RUN')}</b> (${cfg.upstoxAutoOrder ? 'Auto-Execute ON' : 'Manual'})</td></tr>
       <tr><td>Saved At</td><td>${escHtml(data.savedAt || '-')}</td></tr>
@@ -1860,25 +1994,30 @@ async function loadSettings() {
     let data = await r.json();
 
     const cfg = data?.appConfig || {};
-    const saved = readSavedSettingsStore();
-    if (!settingsAutoSyncedOnce && Object.keys(saved).length) {
+    const savedTg = readTelegramCredsStore();
+    const savedUpx = readUpstoxDailyStore();
+    if (!settingsAutoSyncedOnce) {
       const patch = {};
-      if (!cfg.hasUpstoxToken && saved.upstoxToken) patch.upstoxToken = saved.upstoxToken;
-      if (!cfg.hasTelegramToken && saved.telegramBotToken) patch.telegramBotToken = saved.telegramBotToken;
-      if (!cfg.telegramChatId && saved.telegramChatId) patch.telegramChatId = saved.telegramChatId;
-      if (!cfg.hasUpstoxSandboxToken && saved.upstoxSandboxToken) patch.upstoxSandboxToken = saved.upstoxSandboxToken;
+      if (!cfg.hasTelegramToken && savedTg.telegramBotToken) patch.telegramBotToken = savedTg.telegramBotToken;
+      if (!cfg.telegramChatId && savedTg.telegramChatId) patch.telegramChatId = savedTg.telegramChatId;
+      if (savedTg.telegramEnabled !== undefined && cfg.telegramEnabled !== savedTg.telegramEnabled && (!cfg.hasTelegramToken || !cfg.telegramChatId)) {
+        patch.telegramEnabled = savedTg.telegramEnabled;
+      }
+      if (!cfg.hasUpstoxToken && !savedUpx.tokenExpired && savedUpx.upstoxToken) {
+        patch.upstoxToken = savedUpx.upstoxToken;
+      }
+      if (!cfg.hasUpstoxSandboxToken && savedUpx.upstoxSandboxToken) patch.upstoxSandboxToken = savedUpx.upstoxSandboxToken;
       if (Object.keys(patch).length) {
         settingsAutoSyncedOnce = true;
-        if (saved.instrument) patch.instrument = saved.instrument;
-        if (saved.maxTrades != null) patch.maxTrades = saved.maxTrades;
-        if (saved.telegramEnabled !== undefined) patch.telegramEnabled = saved.telegramEnabled;
-        if (saved.telegramNotifyEntries !== undefined) patch.telegramNotifyEntries = saved.telegramNotifyEntries;
-        if (saved.telegramNotifyExits !== undefined) patch.telegramNotifyExits = saved.telegramNotifyExits;
-        if (saved.telegramAutoMonitor !== undefined) patch.telegramAutoMonitor = saved.telegramAutoMonitor;
-        if (saved.upstoxOrderMode) patch.upstoxOrderMode = saved.upstoxOrderMode;
-        if (saved.upstoxAutoOrder !== undefined) patch.upstoxAutoOrder = saved.upstoxAutoOrder;
-        if (saved.upstoxOrderProduct) patch.upstoxOrderProduct = saved.upstoxOrderProduct;
-        if (saved.upstoxOrderLots != null) patch.upstoxOrderLots = saved.upstoxOrderLots;
+        if (savedUpx.instrument) patch.instrument = savedUpx.instrument;
+        if (savedUpx.maxTrades != null) patch.maxTrades = savedUpx.maxTrades;
+        if (savedTg.telegramNotifyEntries !== undefined) patch.telegramNotifyEntries = savedTg.telegramNotifyEntries;
+        if (savedTg.telegramNotifyExits !== undefined) patch.telegramNotifyExits = savedTg.telegramNotifyExits;
+        if (savedTg.telegramAutoMonitor !== undefined) patch.telegramAutoMonitor = savedTg.telegramAutoMonitor;
+        if (savedUpx.upstoxOrderMode) patch.upstoxOrderMode = savedUpx.upstoxOrderMode;
+        if (savedUpx.upstoxAutoOrder !== undefined) patch.upstoxAutoOrder = savedUpx.upstoxAutoOrder;
+        if (savedUpx.upstoxOrderProduct) patch.upstoxOrderProduct = savedUpx.upstoxOrderProduct;
+        if (savedUpx.upstoxOrderLots != null) patch.upstoxOrderLots = savedUpx.upstoxOrderLots;
         const syncResp = await fetch('/api/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1894,6 +2033,62 @@ async function loadSettings() {
 
     renderSettingsResult(data);
   } catch (_) {}
+}
+
+async function saveDailyUpstoxOnly(btn) {
+  const msg = document.getElementById('settings-msg');
+  const tok = document.getElementById('set-token').value.trim();
+  const sTok = document.getElementById('set-sandbox-token').value.trim();
+  if (!tok && !sTok) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.className = 'dnt';
+      msg.textContent = "Paste today's Upstox Access Token first.";
+    }
+    return;
+  }
+  if (btn) btn.disabled = true;
+  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = "Updating today's Upstox token (Telegram settings unchanged)…"; }
+
+  try {
+    const resp = await fetch('/api/upstox/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...(tok ? { upstoxToken: tok } : {}),
+        ...(sTok ? { upstoxSandboxToken: sTok } : {})
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to update daily Upstox token');
+
+    dirtySettingsFields.delete('set-token');
+    dirtySettingsFields.delete('set-sandbox-token');
+    writeDraftStore();
+    writeUpstoxDailyStore({
+      ...(tok ? { upstoxToken: tok } : {}),
+      ...(sTok ? { upstoxSandboxToken: sTok } : {})
+    }, Boolean(tok));
+
+    if (msg) {
+      if (data.upstox?.verified) {
+        msg.className = 'upt';
+        msg.textContent = `Today's Upstox token verified (@${data.upstox.profile?.user_id || 'OK'}) for ${data.upstoxDaily?.currentDay || 'today'}. Telegram credentials preserved.`;
+      } else {
+        msg.className = 'mid';
+        msg.textContent = `Upstox token saved, verification note: ${data.upstox?.error || 'Could not verify'}.`;
+      }
+    }
+    renderSettingsResult(data);
+    loadLive(true);
+  } catch (err) {
+    if (msg) {
+      msg.className = 'dnt';
+      msg.textContent = err.message || 'Could not update Upstox token.';
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function saveAllSettings(e) {
@@ -1940,7 +2135,8 @@ async function saveAllSettings(e) {
 
     dirtySettingsFields.clear();
     clearDraftStore();
-    writeSavedSettingsStore(body);
+    writeTelegramCredsStore(body);
+    writeUpstoxDailyStore(body, Boolean(tok));
 
     const parts = ['All settings saved successfully'];
     if (data.upstox?.verified) {

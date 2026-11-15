@@ -45,11 +45,19 @@ let appConfig = {
     upstoxOrderMode: 'DRY_RUN',
     upstoxAutoOrder: false,
     upstoxOrderProduct: 'I',
-    upstoxOrderLots: 1
+    upstoxOrderLots: 1,
+    upstoxTokenUpdatedAt: null,
+    upstoxTokenDay: null
 };
 
 let botState = { status: 'Idle', lastSignal: 'None', tradesToday: 0, currentPnL: 0.0, gammaEnv: 'Neutral', distanceToWall: 145.5 };
 let settingsSavedAt = null;
+
+function getUpstoxTradingDayIST(date = new Date()) {
+    // Upstox access tokens expire daily at 03:30 IST (IST = UTC+05:30 => IST - 03:30 = UTC+02:00)
+    const shifted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
+    return shifted.toISOString().slice(0, 10);
+}
 
 function getWritableDataDir(subName = 'nifty_portal_data') {
     try {
@@ -68,6 +76,8 @@ function getWritableDataDir(subName = 'nifty_portal_data') {
 
 const CONFIG_DIR = getWritableDataDir('nifty_portal_data');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'app_config.json');
+const TELEGRAM_CONFIG_FILE = path.join(CONFIG_DIR, 'telegram_config.json');
+const TELEGRAM_KEYS = ['telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
 
 function loadAppConfig() {
     try {
@@ -89,12 +99,40 @@ function loadAppConfig() {
             }
         }
     } catch (_) {}
+    try {
+        if (fs.existsSync(TELEGRAM_CONFIG_FILE)) {
+            const raw = fs.readFileSync(TELEGRAM_CONFIG_FILE, 'utf8');
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                for (const k of TELEGRAM_KEYS) {
+                    const v = parsed[k];
+                    if (v === undefined || v === null) continue;
+                    if (k === 'telegramBotToken' || k === 'telegramChatId') {
+                        const s = String(v).trim();
+                        if (s !== '') appConfig[k] = s;
+                    } else {
+                        appConfig[k] = v;
+                    }
+                }
+            }
+        }
+    } catch (_) {}
+}
+
+function saveTelegramConfig() {
+    try {
+        if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+        const tgOnly = {};
+        for (const k of TELEGRAM_KEYS) tgOnly[k] = appConfig[k];
+        fs.writeFileSync(TELEGRAM_CONFIG_FILE, JSON.stringify({ ...tgOnly, updatedAt: new Date().toISOString() }, null, 2), 'utf8');
+    } catch (_) {}
 }
 
 function saveAppConfig() {
     try {
         if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
         fs.writeFileSync(CONFIG_FILE, JSON.stringify({ ...appConfig, settingsSavedAt }, null, 2), 'utf8');
+        saveTelegramConfig();
     } catch (_) {}
 }
 
@@ -189,10 +227,12 @@ app.get('/api/market', async (req, res) => {
         res.json({
             ...data,
             alerts: getTelegramAlertsForDashboard(),
+            upstoxDaily: getUpstoxDailyStatus(),
             telegramStatus: {
                 enabled: Boolean(appConfig.telegramEnabled),
                 hasToken: Boolean(appConfig.telegramBotToken),
-                hasChatId: Boolean(appConfig.telegramChatId)
+                hasChatId: Boolean(appConfig.telegramChatId),
+                permanent: true
             }
         });
     } catch (err) {
@@ -203,12 +243,14 @@ let upstoxState = {
     verified: false,
     profile: null,
     error: null,
-    checkedAt: null
+    checkedAt: null,
+    checkedDay: null
 };
 let telegramBotState = {
     verified: false,
     bot: null,
     error: null,
+    httpStatus: null,
     checkedAt: null
 };
 
@@ -216,6 +258,38 @@ function maskToken(tok) {
     if (!tok) return '';
     if (tok.length <= 8) return '****';
     return tok.slice(0, 4) + '••••' + tok.slice(-4);
+}
+
+function getUpstoxDailyStatus() {
+    const currentDay = getUpstoxTradingDayIST();
+    const hasToken = Boolean(appConfig.upstoxToken);
+    const tokenDay = appConfig.upstoxTokenDay || null;
+    const isStaleDay = Boolean(hasToken && tokenDay && tokenDay !== currentDay && !upstoxState.verified);
+    const isUnauthorized = Boolean(
+        hasToken && upstoxState.checkedAt && !upstoxState.verified &&
+        (upstoxState.httpStatus === 401 || /invalid|expired|unauthoriz/i.test(String(upstoxState.error || '')))
+    );
+    const needsDailyUpdate = !hasToken || isStaleDay || isUnauthorized;
+    let reason = `Active for ${tokenDay || currentDay}`;
+    if (!hasToken) {
+        reason = 'Upstox daily token not set for today';
+    } else if (isUnauthorized) {
+        reason = `Upstox daily token rejected (${upstoxState.error || 'HTTP 401'}) — update today's token`;
+    } else if (isStaleDay) {
+        reason = `Upstox token from ${tokenDay} expired (03:30 IST daily reset) — update today's token`;
+    } else if (tokenDay && tokenDay !== currentDay) {
+        reason = `Token saved on ${tokenDay} — daily update recommended for ${currentDay}`;
+    }
+    return {
+        currentDay,
+        tokenDay,
+        updatedAt: appConfig.upstoxTokenUpdatedAt || null,
+        hasToken,
+        isStaleDay,
+        isUnauthorized,
+        needsDailyUpdate,
+        reason
+    };
 }
 
 function getSafeConfig() {
@@ -231,9 +305,23 @@ function getSafeConfig() {
     };
 }
 
+async function ensureTelegramVerified() {
+    if (!appConfig.telegramBotToken) {
+        telegramBotState = { verified: false, bot: null, error: null, httpStatus: null, checkedAt: null };
+        return telegramBotState;
+    }
+    const lastMs = telegramBotState.checkedAt ? Date.parse(telegramBotState.checkedAt) : 0;
+    const retryFailed = !telegramBotState.verified && (!lastMs || (Date.now() - lastMs) > 30000);
+    if (!telegramBotState.checkedAt || retryFailed) {
+        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
+    }
+    return telegramBotState;
+}
+
 async function fetchUpstoxProfile(token) {
+    const currentDay = getUpstoxTradingDayIST();
     if (!token) {
-        upstoxState = { verified: false, profile: null, error: null, checkedAt: null };
+        upstoxState = { verified: false, profile: null, error: null, checkedAt: null, checkedDay: null };
         return upstoxState;
     }
     try {
@@ -255,8 +343,15 @@ async function fetchUpstoxProfile(token) {
                     ...d
                 },
                 error: null,
-                checkedAt: new Date().toISOString()
+                httpStatus: resp.status,
+                checkedAt: new Date().toISOString(),
+                checkedDay: currentDay
             };
+            if (!appConfig.upstoxTokenDay) {
+                appConfig.upstoxTokenDay = currentDay;
+                if (!appConfig.upstoxTokenUpdatedAt) appConfig.upstoxTokenUpdatedAt = upstoxState.checkedAt;
+                saveAppConfig();
+            }
         } else {
             const msg = payload?.errors?.[0]?.message || payload?.message || `Upstox returned HTTP ${resp.status}`;
             upstoxState = {
@@ -264,7 +359,8 @@ async function fetchUpstoxProfile(token) {
                 profile: null,
                 error: msg,
                 httpStatus: resp.status,
-                checkedAt: new Date().toISOString()
+                checkedAt: new Date().toISOString(),
+                checkedDay: currentDay
             };
         }
     } catch (err) {
@@ -272,7 +368,8 @@ async function fetchUpstoxProfile(token) {
             verified: false,
             profile: null,
             error: err?.message || 'Could not reach Upstox API',
-            checkedAt: new Date().toISOString()
+            checkedAt: new Date().toISOString(),
+            checkedDay: currentDay
         };
     }
     return upstoxState;
@@ -280,17 +377,17 @@ async function fetchUpstoxProfile(token) {
 
 app.get('/api/settings', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    if (appConfig.upstoxToken && !upstoxState.checkedAt) {
+    const currentDay = getUpstoxTradingDayIST();
+    if (appConfig.upstoxToken && (!upstoxState.checkedAt || upstoxState.checkedDay !== currentDay)) {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
-    if (appConfig.telegramBotToken && !telegramBotState.checkedAt) {
-        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
-    }
+    await ensureTelegramVerified();
     res.json({
         success: true,
         savedAt: settingsSavedAt,
         appConfig: getSafeConfig(),
         upstox: upstoxState,
+        upstoxDaily: getUpstoxDailyStatus(),
         telegram: telegramBotState
     });
 });
@@ -302,6 +399,8 @@ app.post('/api/settings', async (req, res) => {
         'telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor',
         'upstoxSandboxToken', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'
     ];
+    let upstoxTokenUpdated = false;
+    let tgTokenUpdated = false;
     for (const key of allowed) {
         if (body[key] !== undefined) {
             if (key === 'instrument') {
@@ -310,7 +409,12 @@ app.post('/api/settings', async (req, res) => {
             } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor', 'upstoxAutoOrder'].includes(key)) {
                 appConfig[key] = body[key] === true || body[key] === 'true';
             } else if (['upstoxSandboxToken', 'upstoxToken', 'telegramBotToken'].includes(key)) {
-                if (body[key] !== '') appConfig[key] = String(body[key]).trim();
+                const trimmed = String(body[key]).trim();
+                if (trimmed !== '') {
+                    if (key === 'upstoxToken') upstoxTokenUpdated = true;
+                    if (key === 'telegramBotToken') tgTokenUpdated = true;
+                    appConfig[key] = trimmed;
+                }
             } else if (key === 'telegramChatId') {
                 appConfig.telegramChatId = String(body[key]).trim();
             } else if (key === 'upstoxOrderMode') {
@@ -326,22 +430,66 @@ app.post('/api/settings', async (req, res) => {
             }
         }
     }
-    settingsSavedAt = new Date().toISOString();
+    const nowIso = new Date().toISOString();
+    if (upstoxTokenUpdated) {
+        appConfig.upstoxTokenUpdatedAt = nowIso;
+        appConfig.upstoxTokenDay = getUpstoxTradingDayIST();
+        upstoxState.checkedAt = null;
+    }
+    if (tgTokenUpdated) {
+        telegramBotState.checkedAt = null;
+    }
+    settingsSavedAt = nowIso;
     saveAppConfig();
     clearMarketCache();
 
-    if (body.upstoxToken || (appConfig.upstoxToken && !upstoxState.verified)) {
+    if (upstoxTokenUpdated || (appConfig.upstoxToken && !upstoxState.verified)) {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
-    if (body.telegramBotToken || (appConfig.telegramBotToken && !telegramBotState.verified)) {
-        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
-    }
+    await ensureTelegramVerified();
 
     res.json({
         success: true,
         savedAt: settingsSavedAt,
         appConfig: getSafeConfig(),
         upstox: upstoxState,
+        upstoxDaily: getUpstoxDailyStatus(),
+        telegram: telegramBotState
+    });
+});
+
+app.post('/api/upstox/token', async (req, res) => {
+    const body = req.body || {};
+    const tok = typeof body.upstoxToken === 'string' ? body.upstoxToken.trim() : '';
+    const sTok = typeof body.upstoxSandboxToken === 'string' ? body.upstoxSandboxToken.trim() : '';
+    if (!tok && !sTok) {
+        return res.status(400).json({ success: false, message: 'Please paste a valid daily Upstox Access Token.' });
+    }
+    const nowIso = new Date().toISOString();
+    if (tok) {
+        appConfig.upstoxToken = tok;
+        appConfig.upstoxTokenUpdatedAt = nowIso;
+        appConfig.upstoxTokenDay = getUpstoxTradingDayIST();
+        upstoxState.checkedAt = null;
+    }
+    if (sTok) {
+        appConfig.upstoxSandboxToken = sTok;
+    }
+    settingsSavedAt = nowIso;
+    saveAppConfig();
+    clearMarketCache();
+
+    if (appConfig.upstoxToken) {
+        await fetchUpstoxProfile(appConfig.upstoxToken);
+    }
+    await ensureTelegramVerified();
+
+    res.json({
+        success: true,
+        savedAt: settingsSavedAt,
+        appConfig: getSafeConfig(),
+        upstox: upstoxState,
+        upstoxDaily: getUpstoxDailyStatus(),
         telegram: telegramBotState
     });
 });
@@ -511,9 +659,7 @@ app.post('/api/backtest', async (req, res) => {
 
 app.get('/api/telegram', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    if (appConfig.telegramBotToken && !telegramBotState.checkedAt) {
-        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
-    }
+    await ensureTelegramVerified();
     res.json({
         success: true,
         appConfig: getSafeConfig(),
@@ -544,9 +690,9 @@ app.post('/api/telegram/settings', async (req, res) => {
         appConfig.telegramAutoMonitor = body.telegramAutoMonitor === true || body.telegramAutoMonitor === 'true';
     }
     if (!appConfig.telegramBotToken) {
-        telegramBotState = { verified: false, bot: null, error: null, checkedAt: null };
-    } else if (!telegramBotState.checkedAt || body.telegramBotToken) {
-        telegramBotState = await verifyTelegramBot(appConfig.telegramBotToken);
+        telegramBotState = { verified: false, bot: null, error: null, httpStatus: null, checkedAt: null };
+    } else {
+        await ensureTelegramVerified();
     }
     settingsSavedAt = new Date().toISOString();
     saveAppConfig();
@@ -606,6 +752,7 @@ app.get('/api/upstox/orders', async (req, res) => {
     res.json({
         success: true,
         appConfig: getSafeConfig(),
+        upstoxDaily: getUpstoxDailyStatus(),
         state: loadOrderState(),
         orderBook
     });
