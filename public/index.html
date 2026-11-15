@@ -3,12 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Paslin dashboard</title>
+<title>NIFTY &amp; SENSEX Live</title>
 <style>
 :root{--bg:#f4f6f9;--fg:#0f172a;--mut:#64748b;--card:#fff;--bd:#e2e8f0;--up:#16845b;--dn:#c43a3a;--mid:#8a6d1d;--px:#2b3a55;--hma:#d97706;--cpr:rgba(59,130,246,.14);--accent:#0284c7;--accent-hover:#0369a1}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font:13px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--fg);padding:12px;max-width:1480px;margin:auto}
-header{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin:6px 0 10px}
+header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:6px 0 10px}
+.hdr-indices{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hdr-idx{display:inline-flex;align-items:baseline;gap:7px;background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:5px 11px;cursor:pointer;transition:border-color .15s ease}
+.hdr-idx:hover{border-color:var(--accent)}
+.hdr-idx-name{font-size:11px;font-weight:700;color:var(--mut);letter-spacing:.04em}
+.hdr-idx-val{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums}
+.hdr-idx-chg{font-size:11px;font-weight:600;font-variant-numeric:tabular-nums}
 h2{font-size:20px}h3{font-size:15px}
 h4{margin:0 0 6px;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
 .clock,.sub,small,.foot{color:var(--mut);font-size:12px}
@@ -51,7 +57,7 @@ input.input-saved{border-color:#86efac;background:#f0fdf4}
 .sync-banner{padding:8px 10px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);font-size:12px;margin-top:10px;line-height:1.45}
 .sync-banner.ok{border-color:#86efac;background:#f0fdf4;color:#14532d}
 .sync-banner.warn{border-color:#fca5a5;background:#fef2f2;color:#7f1d1d}
-@media(max-width:640px){form.f label{min-width:100%}header{gap:4px}nav.tabs button{padding:6px 11px;font-size:12px}}
+@media(max-width:640px){form.f label{min-width:100%}header{gap:6px}.hdr-indices{width:100%;gap:6px}.hdr-idx{flex:1;justify-content:space-between;padding:5px 8px;gap:4px}.hdr-idx-val{font-size:14px}nav.tabs button{padding:6px 11px;font-size:12px}}
 button.btn{font:inherit;padding:8px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer;font-weight:bold}
 button.btn:hover{background:var(--accent-hover)}
 .stats{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
@@ -128,7 +134,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 
 <div id="portal-container" style="display:none">
   <header>
-    <h2>Paslin dashboard</h2>
+    <div class="hdr-indices" id="hdr-indices" onclick="document.querySelector('.tab-btn[data-tab=&quot;dashboard&quot;]')?.click()" title="Click to open Live tab">
+      <div class="hdr-idx"><span class="hdr-idx-name">NIFTY</span><span class="hdr-idx-val">—</span></div>
+      <div class="hdr-idx"><span class="hdr-idx-name">SENSEX</span><span class="hdr-idx-val">—</span></div>
+    </div>
     <span class="clock" id="live-clock"></span>
   </header>
 
@@ -1601,7 +1610,34 @@ function renderSignalSummary(m) {
   document.getElementById('signals-body').innerHTML = html;
 }
 
+function renderHeaderIndices(m) {
+  const wrap = document.getElementById('hdr-indices');
+  const insts = Array.isArray(m?.instruments) ? m.instruments : [];
+  const byKey = Object.fromEntries(insts.map(i => [i.key, i]));
+  const items = ['NIFTY', 'SENSEX'].map(k => byKey[k]).filter(Boolean);
+  if (!items.length) return;
+  if (wrap) {
+    wrap.innerHTML = items.map(d => {
+      const chg = Number(d.change) || 0;
+      const pct = Number(d.changePct) || 0;
+      const cls = tone(chg);
+      const chgStr = `${chg > 0 ? '+' : ''}${fmt2(chg)} (${pct > 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+      return `<div class="hdr-idx">
+        <span class="hdr-idx-name">${escHtml(d.key)}</span>
+        <span class="hdr-idx-val">${fmt2(d.price)}</span>
+        <span class="hdr-idx-chg ${cls}">${chgStr}</span>
+      </div>`;
+    }).join('');
+  }
+  const titleParts = items.map(d => {
+    const pct = Number(d.changePct) || 0;
+    return `${d.key} ${fmt2(d.price)} (${pct > 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+  });
+  if (titleParts.length) document.title = titleParts.join(' · ');
+}
+
 function renderLive(m) {
+  renderHeaderIndices(m);
   const noticeEl = document.getElementById('live-notice');
   if (noticeEl) {
     const syncedAt = m.fetchedAt
