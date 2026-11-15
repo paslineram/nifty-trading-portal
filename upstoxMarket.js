@@ -1255,6 +1255,14 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
         };
     }).sort((a, b) => b.changePct - a.changePct);
 
+    const stockMap = new Map(stocks.map(s => [s.symbol, s]));
+    const nearOrderBlocks = await scanNifty50OrderBlocks({
+        timeframe: '5m',
+        maxDistPct: 1.0,
+        token,
+        stockMap
+    }).catch(() => null);
+
     return {
         breadth: {
             total: stocks.length,
@@ -1270,6 +1278,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
         sectors,
         topHigh,
         topLoss,
+        nearOrderBlocks,
         stocks: sortedDesc
     };
 }
@@ -1805,8 +1814,719 @@ async function fetchUpstoxBrokerJournal(token) {
     }
 }
 
-function clearMarketCache() {
-    cache.clear();
+const stockChartCache = new Map();
+
+function formatBarTimeIST(isoTs) {
+    const d = new Date(isoTs);
+    if (Number.isNaN(d.getTime())) return String(isoTs || '');
+    return d.toLocaleTimeString('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
 }
 
-module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, isMarketOpenIST };
+function formatDayShortIST(ymd) {
+    const d = new Date(`${ymd}T09:15:00+05:30`);
+    if (Number.isNaN(d.getTime())) return ymd;
+    return d.toLocaleDateString('en-GB', {
+        timeZone: 'Asia/Kolkata',
+        day: '2-digit',
+        month: 'short'
+    });
+}
+
+async function fetchCandlesTf(upstoxKey, todayYmd, tf = '5m', lookbackDays = 16) {
+    const mapTf = {
+        '5m': { unit: 'minutes', interval: 5 },
+        '15m': { unit: 'minutes', interval: 15 },
+        '1h': { unit: 'hours', interval: 1 }
+    };
+    const spec = mapTf[tf] || mapTf['5m'];
+    const fromYmd = addDaysYmd(todayYmd, -lookbackDays);
+    const enc = encodeURIComponent(upstoxKey);
+    const [hist, intra] = await Promise.all([
+        fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/${spec.unit}/${spec.interval}/${todayYmd}/${fromYmd}`).catch(() => ({ data: { candles: [] } })),
+        fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/${spec.unit}/${spec.interval}`).catch(() => ({ data: { candles: [] } }))
+    ]);
+    const map = new Map();
+    for (const c of [...parseCandles(hist?.data?.candles), ...parseCandles(intra?.data?.candles)]) {
+        map.set(c.ts, c);
+    }
+    return Array.from(map.values()).sort((a, b) => a.ts.localeCompare(b.ts));
+}
+
+function computeSessionVWAP(candles) {
+    let curYmd = '';
+    let cumPV = 0;
+    let cumV = 0;
+    return candles.map(c => {
+        if (c.ymd !== curYmd) {
+            curYmd = c.ymd;
+            cumPV = 0;
+            cumV = 0;
+        }
+        const tp = (c.h + c.l + c.c) / 3;
+        const vol = Number(c.v || 0);
+        if (vol > 0) {
+            cumPV += tp * vol;
+            cumV += vol;
+            return r2(cumPV / cumV);
+        }
+        return cumV > 0 ? r2(cumPV / cumV) : null;
+    });
+}
+
+function computeBarATRSeries(candles, period = 14) {
+    const out = new Array(candles.length).fill(0);
+    if (candles.length < 2) return out;
+    let rolling = 0;
+    for (let i = 1; i < candles.length; i++) {
+        const cur = candles[i];
+        const prev = candles[i - 1];
+        const tr = Math.max(cur.h - cur.l, Math.abs(cur.h - prev.c), Math.abs(cur.l - prev.c));
+        if (i <= period) {
+            rolling += tr;
+            out[i] = rolling / i;
+        } else {
+            out[i] = (out[i - 1] * (period - 1) + tr) / period;
+        }
+    }
+    return out;
+}
+
+function computeTrendFromCandles(candles) {
+    if (!candles || candles.length < 12) return { dir: 'Flat', bull: null };
+    const closes = candles.map(c => c.c);
+    const st = computeSupertrend(candles, 10, 3);
+    const hma = computeHMA(closes);
+    const lastSt = st[st.length - 1];
+    const h1 = hma[hma.length - 1];
+    const h2 = hma[hma.length - 2];
+    const lastC = closes[closes.length - 1];
+    const stUp = lastSt ? lastSt.up : null;
+    const hmaUp = (h1 != null && h2 != null) ? h1 >= h2 : (h1 != null ? lastC >= h1 : null);
+    if (stUp === true && hmaUp !== false) return { dir: 'Up', bull: true };
+    if (stUp === false && hmaUp !== true) return { dir: 'Down', bull: false };
+    if (hmaUp === true) return { dir: 'Up', bull: true };
+    if (hmaUp === false) return { dir: 'Down', bull: false };
+    return { dir: 'Flat', bull: null };
+}
+
+function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) {
+    const n = candles.length;
+    const atrSeries = computeBarATRSeries(candles, 14);
+    const lastAtr = atrSeries[n - 1] || Math.max(1, (candles[n - 1]?.c || 100) * 0.005);
+
+    // Detect Order Blocks with optional overlapping FVG
+    const rawOBs = [];
+    for (let i = 2; i < n - 1; i++) {
+        const prev = candles[i - 1];
+        const c = candles[i];
+        const next = candles[i + 1];
+        const c2 = candles[i - 2];
+        const atr = Math.max(0.05, atrSeries[i] || lastAtr);
+        const body = Math.abs(c.c - c.o);
+        const bullImpulse = c.c > c.o && body >= 0.65 * atr && next.c > c.h * 0.999;
+        const bearImpulse = c.c < c.o && body >= 0.65 * atr && next.c < c.l * 1.001;
+
+        if (bullImpulse && prev.c <= prev.o) {
+            const top = Math.max(prev.o, prev.c);
+            const bot = prev.l;
+            const hasFvg = (next.l > prev.h) || (c.l > c2.h);
+            if (top > bot && (top - bot) <= 4.5 * atr) {
+                rawOBs.push({
+                    side: 'BULL',
+                    startIdx: i - 1,
+                    bot: r2(bot),
+                    top: r2(top),
+                    mid: r2((bot + top) / 2),
+                    hasFvg,
+                    tests: 0,
+                    status: 'fresh',
+                    breakIdx: null,
+                    endIdx: n - 1
+                });
+            }
+        } else if (bearImpulse && prev.c >= prev.o) {
+            const top = prev.h;
+            const bot = Math.min(prev.o, prev.c);
+            const hasFvg = (next.h < prev.l) || (c.h < c2.l);
+            if (top > bot && (top - bot) <= 4.5 * atr) {
+                rawOBs.push({
+                    side: 'BEAR',
+                    startIdx: i - 1,
+                    bot: r2(bot),
+                    top: r2(top),
+                    mid: r2((bot + top) / 2),
+                    hasFvg,
+                    tests: 0,
+                    status: 'fresh',
+                    breakIdx: null,
+                    endIdx: n - 1
+                });
+            }
+        }
+    }
+
+    // Track test count & break bar for each OB
+    for (const ob of rawOBs) {
+        let inTouch = false;
+        for (let k = ob.startIdx + 2; k < n; k++) {
+            const bar = candles[k];
+            if (ob.side === 'BULL') {
+                if (bar.c < ob.bot) {
+                    ob.status = 'broken';
+                    ob.breakIdx = k;
+                    ob.endIdx = Math.min(n - 1, k + 3);
+                    break;
+                }
+                const touching = bar.l <= ob.top && bar.h >= ob.bot;
+                if (touching && !inTouch) {
+                    ob.tests += 1;
+                    inTouch = true;
+                } else if (!touching) {
+                    inTouch = false;
+                }
+            } else {
+                if (bar.c > ob.top) {
+                    ob.status = 'broken';
+                    ob.breakIdx = k;
+                    ob.endIdx = Math.min(n - 1, k + 3);
+                    break;
+                }
+                const touching = bar.h >= ob.bot && bar.l <= ob.top;
+                if (touching && !inTouch) {
+                    ob.tests += 1;
+                    inTouch = true;
+                } else if (!touching) {
+                    inTouch = false;
+                }
+            }
+        }
+        if (ob.status !== 'broken') {
+            ob.status = ob.tests > 0 ? 'tested' : 'fresh';
+            ob.endIdx = n - 1;
+        }
+    }
+
+    // Filter out overlapping same-side OBs (keep fresher / non-broken or later ones)
+    const filteredOBs = [];
+    for (const ob of [...rawOBs].reverse()) {
+        if (ob.endIdx < visStartIdx) continue;
+        const overlaps = filteredOBs.some(existing =>
+            existing.side === ob.side &&
+            Math.max(existing.bot, ob.bot) <= Math.min(existing.top, ob.top)
+        );
+        if (!overlaps) filteredOBs.push(ob);
+    }
+    filteredOBs.reverse();
+
+    // Limit to clean readable set on chart (prefer active/fresh & recent broken)
+    const activeOBs = filteredOBs.filter(o => o.status !== 'broken').slice(-5);
+    const brokenOBs = filteredOBs.filter(o => o.status === 'broken').slice(-3);
+    const visibleOBs = [...brokenOBs, ...activeOBs].sort((a, b) => a.startIdx - b.startIdx);
+
+    const lastPrice = candles[n - 1]?.c || 0;
+    // Choose best Trade Zone OB (closest active/fresh OB to price)
+    let tradeZone = null;
+    const candidates = visibleOBs
+        .filter(o => o.status !== 'broken')
+        .sort((a, b) => {
+            const scoreA = (a.status === 'fresh' ? 0 : 1) * 1000 + Math.abs(lastPrice - a.mid) / Math.max(1, lastAtr);
+            const scoreB = (b.status === 'fresh' ? 0 : 1) * 1000 + Math.abs(lastPrice - b.mid) / Math.max(1, lastAtr);
+            return scoreA - scoreB;
+        });
+    if (candidates.length) {
+        tradeZone = candidates[0];
+        tradeZone.isTradeZone = true;
+    }
+
+    // Swing highs / lows for Liquidity (BSL / SSL) & Support / Resistance
+    const swingHighs = [];
+    const swingLows = [];
+    const wing = 3;
+    for (let i = wing; i < n - wing; i++) {
+        let isHigh = true;
+        let isLow = true;
+        for (let k = i - wing; k <= i + wing; k++) {
+            if (k === i) continue;
+            if (candles[k].h >= candles[i].h) isHigh = false;
+            if (candles[k].l <= candles[i].l) isLow = false;
+        }
+        if (isHigh) swingHighs.push({ idx: i, price: r2(candles[i].h) });
+        if (isLow) swingLows.push({ idx: i, price: r2(candles[i].l) });
+    }
+
+    // Equal lows / equal highs detection
+    const eqTol = Math.max(lastPrice * 0.0008, lastAtr * 0.25);
+    const liquidity = [];
+    const addLiq = (side, label, price, idx) => {
+        if (!Number.isFinite(price) || price <= 0) return;
+        const dup = liquidity.find(l => l.side === side && Math.abs(l.price - price) <= eqTol * 0.8);
+        if (dup) {
+            if (label.includes('Prev day')) dup.label = label;
+            else if (!dup.label.includes('Prev day') && dup.label.includes('Swing')) dup.label = side === 'SSL' ? 'Equal lows' : 'Equal highs';
+            return;
+        }
+        liquidity.push({ side, label, price: r2(price), idx });
+    };
+
+    // Prev day high / low from daily candles
+    const latestYmd = candles[n - 1]?.ymd;
+    const prevDaily = [...(dailyCandles || [])].reverse().find(d => d.ymd < latestYmd);
+    if (prevDaily) {
+        addLiq('BSL', 'Prev day high', prevDaily.h, Math.max(visStartIdx, n - 12));
+        addLiq('SSL', 'Prev day low', prevDaily.l, Math.max(visStartIdx, n - 12));
+    }
+
+    // Unswept swing highs above price (BSL) and swing lows below price (SSL)
+    for (const sh of swingHighs) {
+        if (sh.idx < visStartIdx - 10) continue;
+        const swept = candles.slice(sh.idx + 1).some(b => b.c > sh.price);
+        if (!swept || sh.price > lastPrice) {
+            addLiq('BSL', 'Swing high', sh.price, Math.max(visStartIdx, sh.idx));
+        }
+    }
+    for (const sl of swingLows) {
+        if (sl.idx < visStartIdx - 10) continue;
+        const swept = candles.slice(sl.idx + 1).some(b => b.c < sl.price);
+        if (!swept || sl.price < lastPrice) {
+            addLiq('SSL', 'Swing low', sl.price, Math.max(visStartIdx, sl.idx));
+        }
+    }
+
+    const visLows = candles.slice(visStartIdx).map(c => c.l);
+    const visHighs = candles.slice(visStartIdx).map(c => c.h);
+    const visMin = Math.min(...visLows);
+    const visMax = Math.max(...visHighs);
+    const bandPad = (visMax - visMin) * 0.25;
+
+    const cleanLiquidity = liquidity
+        .filter(l => l.price >= visMin - bandPad && l.price <= visMax + bandPad)
+        .sort((a, b) => b.price - a.price)
+        .slice(0, 7);
+
+    // Support / Resistance around current price
+    const recentVisHigh = Math.max(...candles.slice(Math.max(0, n - 48)).map(c => c.h));
+    const recentVisLow = Math.min(...candles.slice(Math.max(0, n - 48)).map(c => c.l));
+    const resCandidates = [
+        ...swingHighs.filter(s => s.price >= lastPrice).map(s => s.price),
+        ...(prevDaily && prevDaily.h >= lastPrice ? [prevDaily.h] : []),
+        recentVisHigh
+    ].sort((a, b) => a - b);
+    const supCandidates = [
+        ...swingLows.filter(s => s.price <= lastPrice).map(s => s.price),
+        ...(prevDaily && prevDaily.l <= lastPrice ? [prevDaily.l] : []),
+        recentVisLow
+    ].sort((a, b) => b - a);
+
+    const resistance = r2(resCandidates[0] || recentVisHigh);
+    const support = r2(supCandidates[0] || recentVisLow);
+
+    // Structure reading (BOS up / down / Ranging)
+    let structure = 'Ranging';
+    const priorHighs = swingHighs.filter(s => s.idx < n - 3).slice(-3);
+    const priorLows = swingLows.filter(s => s.idx < n - 3).slice(-3);
+    const lastHigh = priorHighs[priorHighs.length - 1];
+    const lastLow = priorLows[priorLows.length - 1];
+    if (lastHigh && lastPrice > lastHigh.price) structure = 'Broke up';
+    else if (lastLow && lastPrice < lastLow.price) structure = 'Broke down';
+    else if (priorHighs.length >= 2 && priorLows.length >= 2) {
+        const hh = priorHighs[priorHighs.length - 1].price > priorHighs[priorHighs.length - 2].price;
+        const hl = priorLows[priorLows.length - 1].price > priorLows[priorLows.length - 2].price;
+        const ll = priorLows[priorLows.length - 1].price < priorLows[priorLows.length - 2].price;
+        const lh = priorHighs[priorHighs.length - 1].price < priorHighs[priorHighs.length - 2].price;
+        if (hh && hl) structure = 'Broke up';
+        else if (ll && lh) structure = 'Broke down';
+    }
+
+    return {
+        atr: r2(lastAtr),
+        visibleOBs,
+        tradeZone,
+        liquidity: cleanLiquidity,
+        resistance,
+        support,
+        structure
+    };
+}
+
+async function getStockChartAnalysis(symbol, opts = {}) {
+    const rawSym = String(symbol || '').trim().toUpperCase();
+    const matchedStock = NIFTY_50_STOCKS.find(s => s.symbol.toUpperCase() === rawSym)
+        || INSTRUMENTS.map(i => ({ symbol: i.key, sector: 'Index', upstoxKey: i.upstoxKey })).find(i => i.symbol === rawSym);
+
+    if (!matchedStock) {
+        throw new Error(`Unknown stock symbol: ${symbol}`);
+    }
+
+    const tf = ['5m', '15m', '1h'].includes(opts.timeframe) ? opts.timeframe : '5m';
+    const days = [1, 2, 5].includes(Number(opts.days)) ? Number(opts.days) : 2;
+    const token = opts.token || '';
+    const cacheKey = `${matchedStock.symbol}:${tf}:${days}:${token ? token.slice(-8) : 'no-tok'}`;
+    const hit = stockChartCache.get(cacheKey);
+    if (!opts.force && hit && (Date.now() - hit.ts) < 15000) {
+        return hit.data;
+    }
+
+    const ist = getISTParts(new Date());
+    const lookback = tf === '1h' ? 28 : days === 5 ? 18 : 14;
+
+    const [candlesAll, candles15m, candles1h, dailyCandles, batchQuotes] = await Promise.all([
+        fetchCandlesTf(matchedStock.upstoxKey, ist.ymd, tf, lookback),
+        tf === '15m' ? Promise.resolve(null) : fetchCandlesTf(matchedStock.upstoxKey, ist.ymd, '15m', 14),
+        tf === '1h' ? Promise.resolve(null) : fetchCandlesTf(matchedStock.upstoxKey, ist.ymd, '1h', 25),
+        fetchDailyCandles(matchedStock.upstoxKey, ist.ymd, 25),
+        token ? fetchBatchQuotes([matchedStock.upstoxKey], token) : Promise.resolve({})
+    ]);
+
+    if (!candlesAll.length) {
+        throw new Error(`No Upstox ${tf} candles returned for ${matchedStock.symbol}`);
+    }
+
+    const c15 = candles15m || candlesAll;
+    const c1h = candles1h || candlesAll;
+
+    const distinctDays = Array.from(new Set(candlesAll.map(c => c.ymd))).sort();
+    const keepDays = distinctDays.slice(-days);
+    const firstYmd = keepDays[0] || candlesAll[0].ymd;
+    const visStartIdx = Math.max(0, candlesAll.findIndex(c => c.ymd >= firstYmd));
+
+    const vwapAll = computeSessionVWAP(candlesAll);
+    const analysis = detectStockOrderBlocksAndLiquidity(candlesAll, visStartIdx, dailyCandles);
+
+    const visibleCandles = candlesAll.slice(visStartIdx).map((c, idx) => {
+        const gIdx = visStartIdx + idx;
+        return {
+            ts: c.ts,
+            ymd: c.ymd,
+            time: formatBarTimeIST(c.ts),
+            dayLabel: formatDayShortIST(c.ymd),
+            o: r2(c.o),
+            h: r2(c.h),
+            l: r2(c.l),
+            c: r2(c.c),
+            v: Math.round(c.v || 0),
+            vwap: vwapAll[gIdx]
+        };
+    });
+
+    const dayCounts = keepDays.map(ymd => ({
+        ymd,
+        label: formatDayShortIST(ymd),
+        count: visibleCandles.filter(c => c.ymd === ymd).length
+    }));
+
+    const mappedOBs = analysis.visibleOBs.map(ob => ({
+        side: ob.side,
+        startIdx: Math.max(0, ob.startIdx - visStartIdx),
+        endIdx: Math.max(0, Math.min(visibleCandles.length - 1, ob.endIdx - visStartIdx)),
+        bot: ob.bot,
+        top: ob.top,
+        mid: ob.mid,
+        hasFvg: ob.hasFvg,
+        tests: ob.tests,
+        status: ob.status,
+        isTradeZone: Boolean(ob.isTradeZone)
+    }));
+
+    const lastBar = visibleCandles[visibleCandles.length - 1];
+    const latestYmd = lastBar.ymd;
+    const prevDaily = [...dailyCandles].reverse().find(d => d.ymd < latestYmd);
+    const quote = findQuoteForKey(batchQuotes, matchedStock.upstoxKey);
+
+    let lastPrice = lastBar.c;
+    let prevClose = prevDaily ? r2(prevDaily.c) : lastBar.o;
+    let change = r2(lastPrice - prevClose);
+    let changePct = prevClose ? r2((change / prevClose) * 100) : 0;
+
+    if (quote && quote.last_price != null && quote.net_change != null) {
+        const qp = Number(quote.last_price);
+        const qc = Number(quote.net_change);
+        const qprev = qp - qc;
+        if (qp > 0 && qprev > 0 && (qc !== 0 || isMarketOpenIST(new Date()))) {
+            lastPrice = r2(qp);
+            prevClose = r2(qprev);
+            change = r2(qc);
+            changePct = r2((qc / qprev) * 100);
+        }
+    }
+
+    const lastVwap = lastBar.vwap;
+    const aboveVwap = lastVwap != null ? lastPrice >= lastVwap : null;
+    const trend15m = computeTrendFromCandles(c15);
+    const trend1h = computeTrendFromCandles(c1h);
+
+    // Move vs normal day
+    const todayBars = visibleCandles.filter(c => c.ymd === latestYmd);
+    const todayHigh = todayBars.length ? Math.max(...todayBars.map(c => c.h)) : lastBar.h;
+    const todayLow = todayBars.length ? Math.min(...todayBars.map(c => c.l)) : lastBar.l;
+    const todayRange = Math.max(0.01, todayHigh - todayLow);
+    const priorDaily = dailyCandles.filter(d => d.ymd < latestYmd).slice(-10);
+    const avgDailyRange = priorDaily.length
+        ? priorDaily.reduce((s, d) => s + Math.max(0.01, d.h - d.l), 0) / priorDaily.length
+        : todayRange;
+    const moveVsNormalDay = r2(todayRange / Math.max(0.01, avgDailyRange));
+
+    // Trend cleanliness (efficiency ratio over today's bars or visible window)
+    const effBars = todayBars.length >= 6 ? todayBars : visibleCandles.slice(-24);
+    let pathSum = 0;
+    for (let i = 1; i < effBars.length; i++) {
+        pathSum += Math.abs(effBars[i].c - effBars[i - 1].c);
+    }
+    const netMove = effBars.length >= 2 ? Math.abs(effBars[effBars.length - 1].c - effBars[0].o) : 0;
+    const trendCleanliness = pathSum > 0 ? Math.min(100, Math.round((netMove / pathSum) * 100)) : 50;
+
+    // Relative volume (today avg bar vol vs prior days avg bar vol)
+    const todayVolBars = todayBars.filter(b => b.v > 0);
+    const priorVolBars = candlesAll.filter(b => b.ymd < latestYmd && b.v > 0);
+    const todayAvgVol = todayVolBars.length ? todayVolBars.reduce((s, b) => s + b.v, 0) / todayVolBars.length : 0;
+    const priorAvgVol = priorVolBars.length ? priorVolBars.reduce((s, b) => s + b.v, 0) / priorVolBars.length : 0;
+    const relativeVolume = (todayAvgVol > 0 && priorAvgVol > 0) ? r2(todayAvgVol / priorAvgVol) : null;
+
+    // Strength score 0..100
+    let strength = 50;
+    if (aboveVwap === true) strength += 14;
+    else if (aboveVwap === false) strength -= 14;
+    if (trend15m.bull === true) strength += 10;
+    else if (trend15m.bull === false) strength -= 10;
+    if (trend1h.bull === true) strength += 10;
+    else if (trend1h.bull === false) strength -= 10;
+    if (analysis.structure === 'Broke up') strength += 10;
+    else if (analysis.structure === 'Broke down') strength -= 10;
+    strength += Math.max(-12, Math.min(12, changePct * 3));
+    if (analysis.tradeZone?.side === 'BULL') strength += 4;
+    else if (analysis.tradeZone?.side === 'BEAR') strength -= 4;
+    strength = Math.max(5, Math.min(98, Math.round(strength)));
+
+    const strengthBias = strength >= 60 ? 'Bullish' : strength <= 40 ? 'Bearish' : 'Neutral';
+
+    let tradeZoneInfo = null;
+    if (analysis.tradeZone) {
+        const tz = analysis.tradeZone;
+        const stopLiq = tz.side === 'BULL' ? tz.bot : tz.top;
+        const distPct = lastPrice > 0
+            ? r2((Math.min(Math.abs(lastPrice - tz.top), Math.abs(lastPrice - tz.bot)) / lastPrice) * 100)
+            : 0;
+        const inside = lastPrice >= tz.bot && lastPrice <= tz.top;
+        tradeZoneInfo = {
+            side: tz.side,
+            bot: tz.bot,
+            top: tz.top,
+            stopLiquidity: stopLiq,
+            status: tz.status.toUpperCase(),
+            hasFvg: tz.hasFvg,
+            distPct,
+            note: inside
+                ? `Price is inside the ${tz.side === 'BULL' ? 'Bullish' : 'Bearish'} OB zone${tz.hasFvg ? ' with a fair-value gap' : ''}.`
+                : `Zone edge is ${distPct}% away${tz.hasFvg ? ', and the move away from it left a fair-value gap' : ''}.`
+        };
+    }
+
+    const result = {
+        symbol: matchedStock.symbol,
+        sector: matchedStock.sector,
+        upstoxKey: matchedStock.upstoxKey,
+        timeframe: tf,
+        days,
+        price: lastPrice,
+        prevClose,
+        change,
+        changePct,
+        fetchedAt: new Date().toISOString(),
+        candles: visibleCandles,
+        dayCounts,
+        orderBlocks: mappedOBs,
+        liquidity: analysis.liquidity,
+        strength: {
+            score: strength,
+            bias: strengthBias
+        },
+        levels: {
+            status: tradeZoneInfo ? tradeZoneInfo.status : 'WATCH',
+            resistance: analysis.resistance,
+            lastPrice,
+            support: analysis.support,
+            orderBlock: tradeZoneInfo
+        },
+        reading: {
+            structure: analysis.structure,
+            vsVwap: lastVwap != null ? { above: aboveVwap, vwap: lastVwap } : null,
+            trend15m: trend15m.dir,
+            trend1h: trend1h.dir,
+            moveVsNormalDay,
+            trendCleanliness,
+            relativeVolume,
+            atr: analysis.atr
+        }
+    };
+
+    stockChartCache.set(cacheKey, { ts: Date.now(), data: result });
+    return result;
+}
+
+const obScanCache = new Map();
+const obScanInFlight = new Map();
+const OB_SCAN_TTL_MS = 60000;
+
+async function scanNifty50OrderBlocks(opts = {}) {
+    const tf = ['5m', '15m', '1h'].includes(opts.timeframe) ? opts.timeframe : '5m';
+    const maxDistPct = Math.max(0.1, Math.min(5, Number(opts.maxDistPct) || 1.0));
+    const token = opts.token || '';
+    const force = Boolean(opts.force);
+    const cacheKey = `${tf}:${token ? token.slice(-8) : 'no-tok'}`;
+
+    const formatScanResponse = (entry) => {
+        const filtered = entry.items.filter(item => item.distPct <= maxDistPct);
+        return {
+            timeframe: tf,
+            maxDistPct,
+            scannedCount: entry.scannedCount,
+            matchedCount: filtered.length,
+            insideCount: filtered.filter(i => i.inside).length,
+            scannedAt: entry.scannedAt,
+            items: filtered
+        };
+    };
+
+    const cached = obScanCache.get(cacheKey);
+    if (!force && cached && (Date.now() - cached.ts) < OB_SCAN_TTL_MS) {
+        return formatScanResponse(cached);
+    }
+
+    if (!force && obScanInFlight.has(cacheKey)) {
+        const entry = await obScanInFlight.get(cacheKey);
+        return formatScanResponse(entry);
+    }
+
+    const runPromise = (async () => {
+        const ist = getISTParts(new Date());
+        const lookback = tf === '1h' ? 22 : 10;
+        const marketOpen = isMarketOpenIST(new Date());
+        let stockMap = opts.stockMap instanceof Map ? opts.stockMap : null;
+
+        let batchQuotes = {};
+        if (!stockMap && token) {
+            batchQuotes = await fetchBatchQuotes(NIFTY_50_STOCKS.map(s => s.upstoxKey), token);
+        }
+
+        const rows = await mapWithConcurrency(NIFTY_50_STOCKS, 16, async (st) => {
+            try {
+                const candles = await fetchCandlesTf(st.upstoxKey, ist.ymd, tf, lookback);
+                if (!candles || candles.length < 15) return null;
+
+                const distinctDays = Array.from(new Set(candles.map(c => c.ymd))).sort();
+                const keepDays = distinctDays.slice(-2);
+                const firstYmd = keepDays[0] || candles[0].ymd;
+                const visStartIdx = Math.max(0, candles.findIndex(c => c.ymd >= firstYmd));
+
+                const analysis = detectStockOrderBlocksAndLiquidity(candles, visStartIdx, []);
+                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken');
+                if (!unbrokenOBs.length) return null;
+
+                const vwapSeries = computeSessionVWAP(candles);
+                const lastBar = candles[candles.length - 1];
+                const lastVwap = vwapSeries[vwapSeries.length - 1];
+
+                let price = r2(lastBar.c);
+                let changePct = 0;
+                const mapped = stockMap?.get(st.symbol);
+                if (mapped) {
+                    price = mapped.price;
+                    changePct = mapped.changePct;
+                } else {
+                    const q = findQuoteForKey(batchQuotes, st.upstoxKey);
+                    if (q && q.last_price != null && q.net_change != null) {
+                        const qp = Number(q.last_price);
+                        const qc = Number(q.net_change);
+                        const qprev = qp - qc;
+                        if (qp > 0 && qprev > 0 && (qc !== 0 || marketOpen)) {
+                            price = r2(qp);
+                            changePct = r2((qc / qprev) * 100);
+                        }
+                    } else {
+                        const prevDayIdx = candles.findIndex(c => c.ymd === lastBar.ymd) - 1;
+                        if (prevDayIdx >= 0) {
+                            const prevC = candles[prevDayIdx].c;
+                            if (prevC > 0) changePct = r2(((price - prevC) / prevC) * 100);
+                        }
+                    }
+                }
+
+                // Find closest unbroken Order Block to current price
+                let best = null;
+                for (const ob of unbrokenOBs) {
+                    const inside = price >= ob.bot && price <= ob.top;
+                    const distPts = inside ? 0 : Math.min(Math.abs(price - ob.top), Math.abs(price - ob.bot));
+                    const distPct = price > 0 ? r2((distPts / price) * 100) : 999;
+                    const position = inside
+                        ? 'INSIDE'
+                        : price > ob.top ? 'ABOVE' : 'BELOW';
+                    const rankScore = distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0);
+                    if (!best || rankScore < best.rankScore) {
+                        best = { ob, inside, distPct, position, rankScore };
+                    }
+                }
+                if (!best) return null;
+
+                const { ob, inside, distPct, position } = best;
+                return {
+                    symbol: st.symbol,
+                    sector: st.sector,
+                    price,
+                    changePct,
+                    obSide: ob.side,
+                    bot: ob.bot,
+                    top: ob.top,
+                    stopLiquidity: ob.side === 'BULL' ? ob.bot : ob.top,
+                    status: ob.status.toUpperCase(),
+                    tests: ob.tests,
+                    hasFvg: Boolean(ob.hasFvg),
+                    inside,
+                    distPct,
+                    position,
+                    aboveVwap: lastVwap != null ? price >= lastVwap : null,
+                    vwap: lastVwap
+                };
+            } catch (_) {
+                return null;
+            }
+        });
+
+        const items = rows
+            .filter(Boolean)
+            .sort((a, b) => {
+                if (a.inside !== b.inside) return a.inside ? -1 : 1;
+                if (a.distPct !== b.distPct) return a.distPct - b.distPct;
+                if (a.status !== b.status) return a.status === 'FRESH' ? -1 : 1;
+                return Math.abs(b.changePct) - Math.abs(a.changePct);
+            });
+
+        const entry = {
+            ts: Date.now(),
+            scannedAt: new Date().toISOString(),
+            scannedCount: NIFTY_50_STOCKS.length,
+            items
+        };
+        obScanCache.set(cacheKey, entry);
+        return entry;
+    })();
+
+    obScanInFlight.set(cacheKey, runPromise);
+    try {
+        const entry = await runPromise;
+        return formatScanResponse(entry);
+    } finally {
+        obScanInFlight.delete(cacheKey);
+    }
+}
+
+function clearMarketCache() {
+    cache.clear();
+    stockChartCache.clear();
+    obScanCache.clear();
+}
+
+module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, isMarketOpenIST, getStockChartAnalysis, scanNifty50OrderBlocks };

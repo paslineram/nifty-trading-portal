@@ -3,7 +3,7 @@ const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal } = require('./upstoxMarket');
+const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, getStockChartAnalysis, scanNifty50OrderBlocks } = require('./upstoxMarket');
 const {
     loadTelegramState,
     verifyTelegramBot,
@@ -241,6 +241,42 @@ app.get('/api/market', async (req, res) => {
         });
     } catch (err) {
         res.status(502).json({ error: err?.message || 'Failed to load Upstox market data' });
+    }
+});
+
+app.get('/api/xray/stock/:symbol', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    try {
+        const tf = req.query.tf || '5m';
+        const days = req.query.days || 2;
+        const force = req.query.force === '1';
+        const data = await getStockChartAnalysis(req.params.symbol, {
+            timeframe: tf,
+            days,
+            force,
+            token: appConfig.upstoxToken
+        });
+        res.json({ success: true, ...data });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err?.message || 'Could not load stock chart' });
+    }
+});
+
+app.get('/api/xray/ob-radar', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    try {
+        const tf = req.query.tf || '5m';
+        const maxDistPct = req.query.maxDist || 1.0;
+        const force = req.query.force === '1';
+        const data = await scanNifty50OrderBlocks({
+            timeframe: tf,
+            maxDistPct,
+            force,
+            token: appConfig.upstoxToken
+        });
+        res.json({ success: true, ...data });
+    } catch (err) {
+        res.status(502).json({ success: false, error: err?.message || 'Failed to scan NIFTY 50 Order Blocks' });
     }
 });
 let upstoxState = {
