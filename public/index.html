@@ -146,6 +146,19 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     <button class="tab-btn" onclick="handleLogout()" style="color:var(--dn);margin-left:auto">Logout</button>
   </nav>
 
+  <div id="upx-quick-bar" class="sync-banner warn" style="display:none;margin:0 0 10px;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <div style="flex:1;min-width:220px">
+      <b>Upstox Token Update Needed:</b>
+      <span id="upx-quick-reason">Paste today's Upstox Access Token to resume live quotes &amp; option chain without leaving this tab.</span>
+    </div>
+    <form style="display:flex;gap:6px;align-items:center;flex:1;min-width:260px;max-width:520px" onsubmit="quickUpdateUpstoxToken(event)">
+      <input type="password" id="upx-quick-input" placeholder="Paste today's Upstox token" autocomplete="off" style="padding:5px 9px;font-size:12px">
+      <button type="submit" id="upx-quick-btn" class="btn" style="padding:5px 12px;font-size:12px;white-space:nowrap">Update &amp; Refresh</button>
+      <button type="button" class="btn" style="padding:5px 10px;font-size:12px;background:var(--px);border-color:var(--px);white-space:nowrap" onclick="openSettingsTab()">Settings</button>
+    </form>
+    <div id="upx-quick-msg" class="sub" style="width:100%;display:none"></div>
+  </div>
+
   <div id="tab-dashboard" class="tab-content active">
     <div id="live-refresh-bar" class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <span id="live-notice" class="sub">Loading market data…</span>
@@ -432,12 +445,16 @@ document.querySelectorAll('.tab-btn[data-tab]').forEach(btn => btn.addEventListe
   if (btn.dataset.tab === 'backtest' && !hasBacktestRun) runBacktest();
   if (btn.dataset.tab === 'history') loadJournal();
   if (btn.dataset.tab === 'settings') loadSettings();
+  syncQuickUpstoxBar(lastUpstoxDaily);
 }));
 
 let nextRefreshIn = 30;
 let liveInFlight = false;
+let pendingForcedLive = false;
 let hasLiveData = false;
 let lastLiveAtMs = 0;
+let lastUpstoxDaily = null;
+let autoRecoveredTokenAttempted = '';
 let hasBacktestRun = false;
 let lastBacktestResults = null;
 
@@ -662,12 +679,12 @@ async function handleLogin() {
     showPortal();
   } catch (e) { err.style.display = 'block'; }
 }
-function showPortal() {
+async function showPortal() {
   document.getElementById('login-container').style.display = 'none';
   document.getElementById('portal-container').style.display = 'block';
   bindSettingsDirtyListeners();
   restoreSettingsInputsFromBrowser();
-  loadSettings();
+  await loadSettings();
   loadLive();
 }
 function handleLogout() {
@@ -1605,7 +1622,84 @@ function renderSignalSummary(m) {
   document.getElementById('signals-body').innerHTML = html;
 }
 
+function syncQuickUpstoxBar(daily) {
+  if (daily) lastUpstoxDaily = daily;
+  const d = daily || lastUpstoxDaily;
+  const bar = document.getElementById('upx-quick-bar');
+  const reasonEl = document.getElementById('upx-quick-reason');
+  const msgEl = document.getElementById('upx-quick-msg');
+  if (!bar) return;
+  const onSettingsTab = document.getElementById('tab-settings')?.classList.contains('active');
+  if (d?.needsDailyUpdate && !onSettingsTab) {
+    bar.style.display = 'flex';
+    if (reasonEl) {
+      reasonEl.textContent = `${d.reason || 'Upstox daily token expired.'} Paste today's token here to update without leaving this tab.`;
+    }
+  } else {
+    bar.style.display = 'none';
+    if (msgEl) msgEl.style.display = 'none';
+  }
+}
+
+async function quickUpdateUpstoxToken(e) {
+  if (e) e.preventDefault();
+  const inp = document.getElementById('upx-quick-input');
+  const btn = document.getElementById('upx-quick-btn');
+  const msg = document.getElementById('upx-quick-msg');
+  const tok = (inp?.value || '').trim();
+  if (!tok) {
+    if (msg) { msg.style.display = 'block'; msg.className = 'dnt'; msg.textContent = "Paste today's Upstox Access Token first."; }
+    if (inp) inp.focus();
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Updating…'; }
+  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = "Verifying & saving today's Upstox token…"; }
+
+  try {
+    const resp = await fetch('/api/upstox/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upstoxToken: tok })
+    });
+    const data = await resp.json();
+    if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to update Upstox token');
+
+    autoRecoveredTokenAttempted = '';
+    dirtySettingsFields.delete('set-token');
+    writeDraftStore();
+    writeUpstoxDailyStore({ upstoxToken: tok }, true);
+    const setTokEl = document.getElementById('set-token');
+    if (setTokEl) setTokEl.value = tok;
+    if (inp) inp.value = '';
+
+    renderSettingsResult(data);
+    syncQuickUpstoxBar(data.upstoxDaily);
+
+    if (data.upstoxDaily?.needsDailyUpdate) {
+      if (msg) {
+        msg.style.display = 'block';
+        msg.className = 'dnt';
+        msg.textContent = `Token rejected by Upstox: ${data.upstox?.error || 'Invalid or expired token'}. Please paste a fresh token.`;
+      }
+    } else {
+      if (msg) msg.style.display = 'none';
+      loadLive(true);
+      if (document.getElementById('tab-history')?.classList.contains('active')) loadJournal(true);
+      if (document.getElementById('tab-signals')?.classList.contains('active')) loadUpstoxOrders();
+    }
+  } catch (err) {
+    if (msg) {
+      msg.style.display = 'block';
+      msg.className = 'dnt';
+      msg.textContent = err.message || 'Could not update Upstox token.';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Update & Refresh'; }
+  }
+}
+
 function renderLive(m) {
+  syncQuickUpstoxBar(m.upstoxDaily);
   const noticeEl = document.getElementById('live-notice');
   if (noticeEl) {
     const syncedAt = m.fetchedAt
@@ -1613,7 +1707,7 @@ function renderLive(m) {
       : (m.asOf || '');
     if (m.upstoxDaily?.needsDailyUpdate) {
       noticeEl.className = 'mid';
-      noticeEl.innerHTML = `${escHtml(m.notice || '')} Updated ${escHtml(syncedAt)}. &middot; <b class="dnt">${escHtml(m.upstoxDaily.reason)}</b> <button type="button" class="btn" style="padding:2px 8px;font-size:11px;margin-left:6px" onclick="openSettingsTab()">Update Daily Token</button>`;
+      noticeEl.innerHTML = `${escHtml(m.notice || '')} Updated ${escHtml(syncedAt)}. &middot; <b class="dnt">${escHtml(m.upstoxDaily.reason)}</b>`;
     } else {
       noticeEl.className = 'sub';
       noticeEl.textContent = `${m.notice || ''} Updated ${syncedAt}.`.trim();
@@ -1634,14 +1728,64 @@ function renderLive(m) {
   renderSignalSummary(m);
 }
 
+async function tryRecoverServerTokenFromBrowser(daily) {
+  if (!daily || daily.hasToken) return false;
+  const savedUpx = readUpstoxDailyStore();
+  const savedTg = readTelegramCredsStore();
+  if (savedUpx.tokenExpired || !savedUpx.upstoxToken) return false;
+  if (autoRecoveredTokenAttempted === savedUpx.upstoxToken) return false;
+  autoRecoveredTokenAttempted = savedUpx.upstoxToken;
+  try {
+    const patch = {
+      upstoxToken: savedUpx.upstoxToken,
+      ...(savedUpx.upstoxSandboxToken ? { upstoxSandboxToken: savedUpx.upstoxSandboxToken } : {}),
+      ...(savedUpx.instrument ? { instrument: savedUpx.instrument } : {}),
+      ...(savedUpx.maxTrades != null ? { maxTrades: savedUpx.maxTrades } : {}),
+      ...(savedTg.telegramBotToken ? { telegramBotToken: savedTg.telegramBotToken } : {}),
+      ...(savedTg.telegramChatId ? { telegramChatId: savedTg.telegramChatId } : {}),
+      ...(savedTg.telegramEnabled !== undefined ? { telegramEnabled: savedTg.telegramEnabled } : {})
+    };
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    });
+    return r.ok;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function loadLive(force = false) {
-  if (liveInFlight) return;
+  if (liveInFlight) {
+    if (force) pendingForcedLive = true;
+    return;
+  }
   liveInFlight = true;
   updateRefreshStatus();
   try {
-    const r = await fetch(`/api/market?ts=${Date.now()}${force ? '&force=1' : ''}`, {cache: 'no-store'});
-    const data = await r.json();
+    let r = await fetch(`/api/market?ts=${Date.now()}${force ? '&force=1' : ''}`, {cache: 'no-store'});
+    let data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Could not load market data.');
+    if (data.upstoxDaily && !data.upstoxDaily.hasToken) {
+      const recovered = await tryRecoverServerTokenFromBrowser(data.upstoxDaily);
+      if (recovered) {
+        r = await fetch(`/api/market?ts=${Date.now()}&force=1`, {cache: 'no-store'});
+        const retryData = await r.json();
+        if (r.ok) data = retryData;
+      }
+    }
+    if (data.upstoxDaily?.isUnauthorized) {
+      const savedUpx = readUpstoxDailyStore();
+      if (savedUpx.upstoxToken) {
+        try {
+          const cur = readJsonStore(UPSTOX_STORAGE_KEY);
+          delete cur.upstoxToken;
+          delete cur.upstoxTokenDay;
+          localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(cur));
+        } catch (_) {}
+      }
+    }
     renderLive(data);
     loadTelegramStatus();
     loadUpstoxOrders();
@@ -1660,6 +1804,10 @@ async function loadLive(force = false) {
     liveInFlight = false;
     nextRefreshIn = 30;
     updateRefreshStatus();
+    if (pendingForcedLive) {
+      pendingForcedLive = false;
+      loadLive(true);
+    }
   }
 }
 
@@ -2373,6 +2521,7 @@ async function loadUpstoxOrders() {
       document.getElementById('upx-ord-mode').value = data.appConfig.upstoxOrderMode;
       syncOrderModeBadge();
     }
+    if (data.upstoxDaily) syncQuickUpstoxBar(data.upstoxDaily);
     renderUpstoxOrderPanel(data);
   } catch (_) {}
 }
@@ -2509,10 +2658,14 @@ function renderSettingsResult(data) {
   const cfg = data.appConfig;
   const upx = data.upstox || {};
   const daily = data.upstoxDaily || {};
+  syncQuickUpstoxBar(daily);
   const tg = data.telegram || {};
   const p = upx.profile;
   const savedTg = readTelegramCredsStore();
   const savedUpx = readUpstoxDailyStore();
+  if (upx.verified && !daily.needsDailyUpdate && savedUpx.upstoxToken && savedUpx.tokenExpired) {
+    writeUpstoxDailyStore({}, true);
+  }
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
@@ -2744,7 +2897,7 @@ async function loadSettings() {
         });
         if (syncResp.ok) {
           data = await syncResp.json();
-          loadLive(true);
+          if (hasLiveData) loadLive(true);
           loadTelegramStatus();
         }
       }

@@ -220,15 +220,26 @@ app.get('/api/market', async (req, res) => {
     try {
         const force = req.query.force === '1';
         const currentDay = getUpstoxTradingDayIST();
+        const lastCheckMs = upstoxState.checkedAt ? Date.parse(upstoxState.checkedAt) : 0;
+        const retryTransientProfile = !upstoxState.verified && upstoxState.httpStatus !== 401 && (!lastCheckMs || (Date.now() - lastCheckMs) > 20000);
         const needsProfileCheck = Boolean(
             appConfig.upstoxToken &&
-            (!upstoxState.checkedAt || upstoxState.checkedDay !== currentDay)
+            (!upstoxState.checkedAt || upstoxState.checkedDay !== currentDay || retryTransientProfile)
         );
         const [data] = await Promise.all([
             getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, force),
             needsProfileCheck ? fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null) : Promise.resolve(null)
         ]);
-        if (data.source === 'upstox-live' && appConfig.upstoxToken && !upstoxState.verified) {
+        if (data.quoteAuthFailed && appConfig.upstoxToken) {
+            upstoxState = {
+                verified: false,
+                profile: null,
+                error: data.quoteError || 'Upstox token expired (HTTP 401)',
+                httpStatus: data.quoteHttpStatus || 401,
+                checkedAt: new Date().toISOString(),
+                checkedDay: currentDay
+            };
+        } else if (data.source === 'upstox-live' && appConfig.upstoxToken && !upstoxState.verified) {
             await fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null);
         }
         await Promise.all([
@@ -419,6 +430,7 @@ async function fetchUpstoxProfile(token) {
             verified: false,
             profile: null,
             error: err?.message || 'Could not reach Upstox API',
+            httpStatus: null,
             checkedAt: new Date().toISOString(),
             checkedDay: currentDay
         };
@@ -429,7 +441,9 @@ async function fetchUpstoxProfile(token) {
 app.get('/api/settings', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
     const currentDay = getUpstoxTradingDayIST();
-    if (appConfig.upstoxToken && (!upstoxState.checkedAt || upstoxState.checkedDay !== currentDay)) {
+    const lastCheckMs = upstoxState.checkedAt ? Date.parse(upstoxState.checkedAt) : 0;
+    const retryTransient = !upstoxState.verified && upstoxState.httpStatus !== 401 && (!lastCheckMs || (Date.now() - lastCheckMs) > 15000);
+    if (appConfig.upstoxToken && (!upstoxState.checkedAt || upstoxState.checkedDay !== currentDay || retryTransient)) {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
     await ensureTelegramVerified();

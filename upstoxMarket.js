@@ -714,13 +714,16 @@ function median(arr) {
 }
 
 async function fetchLiveQuotes(token) {
-    if (!token) return { quotes: null, error: 'Upstox Access Token not set' };
+    if (!token) return { quotes: null, error: 'Upstox Access Token not set', status: null, isAuthError: false };
     try {
         const keys = [INSTRUMENTS[0].upstoxKey, INSTRUMENTS[1].upstoxKey, VIX_KEY].join(',');
         const json = await fetchJson(`${UPSTOX_V2}/market-quote/quotes?instrument_key=${encodeURIComponent(keys)}`, token);
-        return { quotes: json?.data || null, error: null };
+        return { quotes: json?.data || null, error: null, status: 200, isAuthError: false };
     } catch (err) {
-        return { quotes: null, error: err.message || 'Live quote request failed' };
+        const msg = err.message || 'Live quote request failed';
+        const status = err.status || null;
+        const isAuthError = status === 401 || /invalid|expired|unauthoriz/i.test(msg);
+        return { quotes: null, error: msg, status, isAuthError };
     }
 }
 
@@ -1310,8 +1313,10 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     const notices = [];
     if (quoteRes.quotes) {
         notices.push('Live Upstox quotes, option chain, and 15-min candles active.');
+    } else if (!token || quoteRes.isAuthError) {
+        notices.push(`Spot candles & technicals are live from Upstox (${asOf}). Live quote & option chain need a valid Upstox token (${quoteRes.error}).`);
     } else {
-        notices.push(`Spot candles & technicals are live from Upstox (${asOf}). Live quote & option chain need a valid Upstox token in Settings (${quoteRes.error}).`);
+        notices.push(`Spot candles & technicals are live from Upstox (${asOf}). Live quote temporarily unavailable (${quoteRes.error}) — retrying on next refresh.`);
     }
     notices.push(`Signal filter: ${mode === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : mode + ' only'}.`);
 
@@ -1321,6 +1326,9 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
         marketOpen,
         activeInstrument: mode,
         source: quoteRes.quotes ? 'upstox-live' : 'upstox-candles',
+        quoteAuthFailed: Boolean(token && quoteRes.isAuthError),
+        quoteHttpStatus: quoteRes.status || null,
+        quoteError: quoteRes.error || null,
         notice: notices.join(' '),
         instruments,
         xray,
@@ -1329,7 +1337,9 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
         alerts: []
     };
 
-    cache.set(cacheKey, { ts: Date.now(), data });
+    if (quoteRes.quotes || !token || quoteRes.isAuthError) {
+        cache.set(cacheKey, { ts: Date.now(), data });
+    }
     return data;
 }
 
