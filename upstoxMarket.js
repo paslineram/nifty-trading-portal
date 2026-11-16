@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 const UPSTOX_V2 = 'https://api.upstox.com/v2';
 const UPSTOX_V3 = 'https://api.upstox.com/v3';
 
@@ -160,6 +163,88 @@ async function fetchJson(url, token = '') {
     return data;
 }
 
+const candleUrlCache = new Map();
+const candleUrlInFlight = new Map();
+let v3RateLimitedUntil = 0;
+
+const CANDLE_CACHE_FILE = path.join(__dirname, 'data', 'candle_cache.json');
+let candleSaveTimer = null;
+
+function loadDiskCandleCache() {
+    try {
+        if (!fs.existsSync(CANDLE_CACHE_FILE)) return;
+        const parsed = JSON.parse(fs.readFileSync(CANDLE_CACHE_FILE, 'utf8'));
+        if (parsed && typeof parsed === 'object') {
+            for (const [url, entry] of Object.entries(parsed)) {
+                if (entry?.data?.data?.candles?.length) {
+                    candleUrlCache.set(url, entry);
+                }
+            }
+        }
+    } catch (_) {}
+}
+
+function scheduleSaveCandleCache() {
+    if (candleSaveTimer) return;
+    candleSaveTimer = setTimeout(() => {
+        candleSaveTimer = null;
+        try {
+            const dir = path.dirname(CANDLE_CACHE_FILE);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+            const entries = Array.from(candleUrlCache.entries())
+                .filter(([, v]) => Array.isArray(v?.data?.data?.candles) && v.data.data.candles.length > 0)
+                .sort((a, b) => b[1].ts - a[1].ts)
+                .slice(0, 260);
+            const obj = Object.fromEntries(entries);
+            fs.writeFileSync(CANDLE_CACHE_FILE, JSON.stringify(obj), 'utf8');
+        } catch (_) {}
+    }, 1000);
+}
+
+loadDiskCandleCache();
+
+function candleTtl(isIntraday = false) {
+    const open = isMarketOpenIST(new Date());
+    if (isIntraday) return open ? 45 * 1000 : 15 * 60 * 1000;
+    return open ? 15 * 60 * 1000 : 60 * 60 * 1000;
+}
+
+async function fetchCandleJson(url, ttlMs) {
+    const hit = candleUrlCache.get(url);
+    const now = Date.now();
+    if (hit && (now - hit.ts) < ttlMs) {
+        return hit.data;
+    }
+    if (now < v3RateLimitedUntil) {
+        return hit ? hit.data : { data: { candles: [] }, _rateLimited: true };
+    }
+    if (candleUrlInFlight.has(url)) {
+        return candleUrlInFlight.get(url);
+    }
+    const p = (async () => {
+        try {
+            const json = await fetchJson(url);
+            if (Array.isArray(json?.data?.candles)) {
+                if (json.data.candles.length > 0 || !hit?.data?.data?.candles?.length) {
+                    candleUrlCache.set(url, { ts: Date.now(), data: json });
+                    if (json.data.candles.length > 0) scheduleSaveCandleCache();
+                }
+            }
+            return json;
+        } catch (err) {
+            if (err?.status === 429) {
+                v3RateLimitedUntil = Date.now() + 60000;
+            }
+            if (hit?.data) return hit.data;
+            return { data: { candles: [] }, _errorStatus: err?.status || null };
+        } finally {
+            candleUrlInFlight.delete(url);
+        }
+    })();
+    candleUrlInFlight.set(url, p);
+    return p;
+}
+
 function parseCandles(raw) {
     if (!Array.isArray(raw)) return [];
     return raw
@@ -179,8 +264,8 @@ async function fetchCandles15m(upstoxKey, todayYmd) {
     const fromYmd = addDaysYmd(todayYmd, -21);
     const enc = encodeURIComponent(upstoxKey);
     const [hist, intra] = await Promise.all([
-        fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/minutes/15/${todayYmd}/${fromYmd}`).catch(() => ({ data: { candles: [] } })),
-        fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/minutes/15`).catch(() => ({ data: { candles: [] } }))
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/${enc}/minutes/15/${todayYmd}/${fromYmd}`, candleTtl(false)),
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/minutes/15`, candleTtl(true))
     ]);
     const map = new Map();
     for (const c of [...parseCandles(hist?.data?.candles), ...parseCandles(intra?.data?.candles)]) {
@@ -193,8 +278,8 @@ async function fetchDailyCandles(upstoxKey, todayYmd, lookbackDays = 45) {
     const fromYmd = addDaysYmd(todayYmd, -lookbackDays);
     const enc = encodeURIComponent(upstoxKey);
     const [hist, intra] = await Promise.all([
-        fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/days/1/${todayYmd}/${fromYmd}`).catch(() => ({ data: { candles: [] } })),
-        fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/days/1`).catch(() => ({ data: { candles: [] } }))
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/${enc}/days/1/${todayYmd}/${fromYmd}`, candleTtl(false)),
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/days/1`, candleTtl(true))
     ]);
     const map = new Map();
     for (const c of [...parseCandles(hist?.data?.candles), ...parseCandles(intra?.data?.candles)]) {
@@ -857,8 +942,72 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         fetchDailyCandles(inst.upstoxKey, todayYmd, 45)
     ]);
 
+    const liveQ = findQuoteForKey(quotes, inst.upstoxKey);
     if (!candles15m.length || daily.length < 2) {
-        throw new Error(`No Upstox candle data returned for ${inst.key}`);
+        if (!liveQ?.last_price) {
+            throw new Error(`No Upstox candle data returned for ${inst.key}`);
+        }
+        const spotPrice = r2(liveQ.last_price);
+        const change = liveQ.net_change != null ? r2(liveQ.net_change) : 0;
+        const prevClose = r2(spotPrice - change);
+        const changePct = prevClose ? r2((change / prevClose) * 100) : 0;
+        const ohlc = liveQ.ohlc || { open: prevClose, high: spotPrice, low: spotPrice, close: prevClose };
+        const synthPrev = {
+            h: Number(ohlc.high || spotPrice),
+            l: Number(ohlc.low || spotPrice),
+            c: prevClose || spotPrice
+        };
+        const { levels } = buildLevels(synthPrev, spotPrice);
+        const optRes = await fetchOptionChainData(inst.upstoxKey, spotPrice, inst.step, token, todayYmd);
+        const chain = optRes.ok ? optRes.chain : {
+            pcrAtm: '-', pcrTotal: '-', pcrAtmTone: '', pcrTotalTone: '',
+            putWall: null, callWall: null, maxPain: null,
+            oiCE: '-', oiPE: '-', atmIv: null,
+            expiry: optRes.error || 'Token required',
+            ladder: []
+        };
+        const oiVote = !optRes.ok ? 'NEUTRAL'
+            : (chain.pcrAtm >= 1.15 ? 'BULL' : chain.pcrAtm <= 0.85 ? 'BEAR' : 'NEUTRAL');
+        const agents = [
+            { name: 'Trend', vote: 'NEUTRAL', note: '15-min candles temporarily rate-limited by Upstox; using live quote' },
+            { name: '1-hour', vote: 'NEUTRAL', note: 'Waiting for Upstox candle rate-limit cooldown' },
+            { name: 'Gap', vote: 'NEUTRAL', note: 'Live quote active' },
+            { name: 'OI / PCR', vote: oiVote, note: optRes.ok ? `PCR ${chain.pcrAtm} (ATM) / ${chain.pcrTotal} (total); Put wall ${chain.putWall}, Call wall ${chain.callWall}` : `Option chain unavailable (${optRes.error})` },
+            { name: 'Range', vote: 'NEUTRAL', note: `Spot ${spotPrice}` }
+        ];
+        const compScore = oiVote === 'BULL' ? 1 : oiVote === 'BEAR' ? -1 : 0;
+        return {
+            key: inst.key,
+            candlesRateLimited: true,
+            signalsEnabled,
+            price: spotPrice,
+            change,
+            changePct,
+            bias: change >= 0 ? 'BULLISH - LIVE QUOTE' : 'BEARISH - LIVE QUOTE',
+            biasTone: change >= 0 ? 'up' : 'dn',
+            supertrend: 'NEUTRAL',
+            hmaSlope: 'FLAT',
+            adx: 0,
+            atr: 0,
+            paperPts: 0,
+            sideways: { score: 0, total: 6, label: 'CANDLE COOLDOWN', checks: [] },
+            days: [],
+            dayCounts: [],
+            candles: [],
+            hma: [],
+            st: [],
+            marks: [],
+            exits: [],
+            trendlines: [],
+            chain,
+            seller: [{ name: 'Candle Feed', tag: 'INFO', note: 'Upstox historical-candle endpoint is cooling down from rate-limit; live quote & option chain active.' }],
+            agents,
+            composite: { score: compScore, text: 'CANDLE COOLDOWN - QUOTE & OI LIVE', tone: 'mid' },
+            levels,
+            why: { pe: 'Waiting for Upstox candle rate-limit recovery', ce: 'Waiting for Upstox candle rate-limit recovery' },
+            signals: [],
+            latestTs: new Date().toISOString()
+        };
     }
 
     const latestBar = candles15m[candles15m.length - 1];
@@ -872,7 +1021,6 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const dayCounts = last3Days.map(d => chartCandles.filter(c => c.ymd === d).length);
 
     // Live quote if available, else latest 15m candle close
-    const liveQ = findQuoteForKey(quotes, inst.upstoxKey);
     const todayDailyIdx = daily.findIndex(d => d.ymd === latestYmd);
     const prevDay = todayDailyIdx > 0 ? daily[todayDailyIdx - 1] : daily[daily.length - 2];
     const currentDay = todayDailyIdx >= 0 ? daily[todayDailyIdx] : daily[daily.length - 1];
@@ -1164,19 +1312,19 @@ async function fetchKeyPriceChange(upstoxKey, todayYmd, batchQuotes, marketOpen)
         const price = Number(q.last_price);
         const change = Number(q.net_change);
         const prevClose = price - change;
-        if (price > 0 && prevClose > 0 && (change !== 0 || marketOpen)) {
+        if (price > 0 && prevClose > 0 && (change !== 0 || marketOpen || (q.ohlc && q.ohlc.open > 0))) {
             const changePct = r2((change / prevClose) * 100);
             return { price: r2(price), prevClose: r2(prevClose), change: r2(change), changePct };
         }
     }
 
-    // Fallback (pre/post-market reset or missing token): fetch Upstox v3 daily candles
+    // Fallback (pre/post-market reset or missing token): fetch Upstox v3 daily candles (cached)
     const enc = encodeURIComponent(upstoxKey);
     const fromYmd = addDaysYmd(todayYmd, -10);
     const [hist, intra] = await Promise.all([
-        fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/days/1/${todayYmd}/${fromYmd}`).catch(() => ({ data: { candles: [] } })),
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/${enc}/days/1/${todayYmd}/${fromYmd}`, candleTtl(false)),
         marketOpen
-            ? fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/days/1`).catch(() => ({ data: { candles: [] } }))
+            ? fetchCandleJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/days/1`, candleTtl(true))
             : Promise.resolve({ data: { candles: [] } })
     ]);
     const map = new Map();
@@ -1201,7 +1349,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
     const classify = (pct) => pct > flatBand ? 'UP' : pct < -flatBand ? 'LOW' : 'NEUTRAL';
 
     const [stockRows, sectorRows] = await Promise.all([
-        mapWithConcurrency(NIFTY_50_STOCKS, 16, async (st) => {
+        mapWithConcurrency(NIFTY_50_STOCKS, 5, async (st) => {
             const p = await fetchKeyPriceChange(st.upstoxKey, todayYmd, batchQuotes, marketOpen);
             if (!p) return null;
             return {
@@ -1214,7 +1362,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
                 status: classify(p.changePct)
             };
         }),
-        mapWithConcurrency(SECTOR_INDICES, 12, async (sec) => {
+        mapWithConcurrency(SECTOR_INDICES, 4, async (sec) => {
             const p = await fetchKeyPriceChange(sec.upstoxKey, todayYmd, batchQuotes, marketOpen);
             if (!p) return null;
             return {
@@ -1287,12 +1435,15 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
     };
 }
 
-async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', force = false) {
+const lastGoodSnapshotByMode = new Map();
+
+async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', force = false, opts = {}) {
     const rawMode = String(selectedInstrument || 'BOTH').toUpperCase();
     const mode = ['NIFTY', 'SENSEX', 'BOTH'].includes(rawMode) ? rawMode : 'BOTH';
+    const includeXray = opts.includeXray !== false;
     const cacheKey = `${token ? token.slice(-12) : 'no-token'}:${mode}`;
     const hit = cache.get(cacheKey);
-    if (!force && hit && (Date.now() - hit.ts) < CACHE_TTL_MS) {
+    if (!force && hit && (Date.now() - hit.ts) < CACHE_TTL_MS && (!includeXray || hit.data?.xray)) {
         return hit.data;
     }
 
@@ -1301,10 +1452,28 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     const quoteRes = await fetchLiveQuotes(token);
     const vixInfo = await getIndiaVixStats(ist.ymd, quoteRes.quotes);
 
-    const [instruments, xray] = await Promise.all([
-        Promise.all(INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token, mode))),
-        fetchMarketXRay(ist.ymd, token, marketOpen).catch(() => null)
-    ]);
+    const staleHit = lastGoodSnapshotByMode.get(mode);
+    let instruments;
+    let xray;
+    try {
+        [instruments, xray] = await Promise.all([
+            Promise.all(INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token, mode))),
+            includeXray
+                ? fetchMarketXRay(ist.ymd, token, marketOpen).catch(() => staleHit?.xray || null)
+                : Promise.resolve(staleHit?.xray || null)
+        ]);
+    } catch (err) {
+        if (staleHit) {
+            return {
+                ...staleHit,
+                quoteAuthFailed: Boolean(token && quoteRes.isAuthError),
+                quoteHttpStatus: quoteRes.status || staleHit.quoteHttpStatus || null,
+                quoteError: quoteRes.error || staleHit.quoteError || null,
+                notice: `${staleHit.notice || ''} (Serving last synced snapshot while Upstox recovers: ${err?.message || 'rate limit'})`.trim()
+            };
+        }
+        throw err;
+    }
 
     const latestTs = instruments.map(i => i.latestTs).filter(Boolean).sort().pop();
     const fetchedAt = new Date().toISOString();
@@ -1318,8 +1487,13 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     } else {
         notices.push(`Spot candles & technicals are live from Upstox (${asOf}). Live quote temporarily unavailable (${quoteRes.error}) — retrying on next refresh.`);
     }
+    const anyRateLimited = instruments.some(i => i.candlesRateLimited);
+    if (anyRateLimited) {
+        notices.push('Candle history temporarily rate-limited by Upstox — live quotes, option chain & market breadth active.');
+    }
     notices.push(`Signal filter: ${mode === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : mode + ' only'}.`);
 
+    const finalXray = xray || staleHit?.xray || null;
     const data = {
         asOf,
         fetchedAt,
@@ -1331,14 +1505,17 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
         quoteError: quoteRes.error || null,
         notice: notices.join(' '),
         instruments,
-        xray,
+        xray: finalXray,
         autopilot: null,
         condor: null,
         alerts: []
     };
 
-    if (quoteRes.quotes || !token || quoteRes.isAuthError) {
-        cache.set(cacheKey, { ts: Date.now(), data });
+    if (!anyRateLimited) {
+        lastGoodSnapshotByMode.set(mode, data);
+        if (quoteRes.quotes || !token || quoteRes.isAuthError) {
+            cache.set(cacheKey, { ts: Date.now(), data });
+        }
     }
     return data;
 }
@@ -1358,9 +1535,9 @@ async function fetchCandles15mRange(upstoxKey, todayYmd, totalDays) {
 
     const resps = await Promise.all([
         ...chunks.map(ch =>
-            fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/minutes/15/${ch.toYmd}/${ch.fromYmd}`).catch(() => ({ data: { candles: [] } }))
+            fetchCandleJson(`${UPSTOX_V3}/historical-candle/${enc}/minutes/15/${ch.toYmd}/${ch.fromYmd}`, candleTtl(false))
         ),
-        fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/minutes/15`).catch(() => ({ data: { candles: [] } }))
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/minutes/15`, candleTtl(true))
     ]);
 
     const map = new Map();
@@ -1858,8 +2035,8 @@ async function fetchCandlesTf(upstoxKey, todayYmd, tf = '5m', lookbackDays = 16)
     const fromYmd = addDaysYmd(todayYmd, -lookbackDays);
     const enc = encodeURIComponent(upstoxKey);
     const [hist, intra] = await Promise.all([
-        fetchJson(`${UPSTOX_V3}/historical-candle/${enc}/${spec.unit}/${spec.interval}/${todayYmd}/${fromYmd}`).catch(() => ({ data: { candles: [] } })),
-        fetchJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/${spec.unit}/${spec.interval}`).catch(() => ({ data: { candles: [] } }))
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/${enc}/${spec.unit}/${spec.interval}/${todayYmd}/${fromYmd}`, candleTtl(false)),
+        fetchCandleJson(`${UPSTOX_V3}/historical-candle/intraday/${enc}/${spec.unit}/${spec.interval}`, candleTtl(true))
     ]);
     const map = new Map();
     for (const c of [...parseCandles(hist?.data?.candles), ...parseCandles(intra?.data?.candles)]) {
@@ -1925,12 +2102,13 @@ function computeTrendFromCandles(candles) {
     return { dir: 'Flat', bull: null };
 }
 
-function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) {
+function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, tf = '5m') {
     const n = candles.length;
     const atrSeries = computeBarATRSeries(candles, 14);
     const lastAtr = atrSeries[n - 1] || Math.max(1, (candles[n - 1]?.c || 100) * 0.005);
+    const maxAgeBars = tf === '1h' ? 24 : (tf === '15m' ? 36 : 48);
 
-    // Detect Order Blocks with optional overlapping FVG
+    // Detect Order Blocks with strong displacement & optional overlapping FVG
     const rawOBs = [];
     for (let i = 2; i < n - 1; i++) {
         const prev = candles[i - 1];
@@ -1939,8 +2117,15 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
         const c2 = candles[i - 2];
         const atr = Math.max(0.05, atrSeries[i] || lastAtr);
         const body = Math.abs(c.c - c.o);
-        const bullImpulse = c.c > c.o && body >= 0.65 * atr && next.c > c.h * 0.999;
-        const bearImpulse = c.c < c.o && body >= 0.65 * atr && next.c < c.l * 1.001;
+        const structStart = Math.max(0, i - 4);
+        let priorHigh = prev.h;
+        let priorLow = prev.l;
+        for (let s = structStart; s < i; s++) {
+            if (candles[s].h > priorHigh) priorHigh = candles[s].h;
+            if (candles[s].l < priorLow) priorLow = candles[s].l;
+        }
+        const bullImpulse = c.c > c.o && body >= 0.75 * atr && next.c > c.h * 0.998 && (Math.max(c.c, next.c) > priorHigh || body >= 1.15 * atr);
+        const bearImpulse = c.c < c.o && body >= 0.75 * atr && next.c < c.l * 1.002 && (Math.min(c.c, next.c) < priorLow || body >= 1.15 * atr);
 
         if (bullImpulse && prev.c <= prev.o) {
             const top = Math.max(prev.o, prev.c);
@@ -1957,7 +2142,9 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
                     tests: 0,
                     status: 'fresh',
                     breakIdx: null,
-                    endIdx: n - 1
+                    endIdx: n - 1,
+                    ageBars: (n - 1) - (i - 1),
+                    stale: false
                 });
             }
         } else if (bearImpulse && prev.c >= prev.o) {
@@ -1975,7 +2162,9 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
                     tests: 0,
                     status: 'fresh',
                     breakIdx: null,
-                    endIdx: n - 1
+                    endIdx: n - 1,
+                    ageBars: (n - 1) - (i - 1),
+                    stale: false
                 });
             }
         }
@@ -2019,6 +2208,7 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
         if (ob.status !== 'broken') {
             ob.status = ob.tests > 0 ? 'tested' : 'fresh';
             ob.endIdx = n - 1;
+            ob.stale = ob.ageBars > maxAgeBars;
         }
     }
 
@@ -2034,8 +2224,8 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
     }
     filteredOBs.reverse();
 
-    // Limit to clean readable set on chart (prefer active/fresh & recent broken)
-    const activeOBs = filteredOBs.filter(o => o.status !== 'broken').slice(-5);
+    // Limit to clean readable set on chart (prefer active/fresh non-stale & recent broken)
+    const activeOBs = filteredOBs.filter(o => o.status !== 'broken' && !o.stale).slice(-5);
     const brokenOBs = filteredOBs.filter(o => o.status === 'broken').slice(-3);
     const visibleOBs = [...brokenOBs, ...activeOBs].sort((a, b) => a.startIdx - b.startIdx);
 
@@ -2043,7 +2233,7 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
     // Choose best Trade Zone OB (closest active/fresh OB to price)
     let tradeZone = null;
     const candidates = visibleOBs
-        .filter(o => o.status !== 'broken')
+        .filter(o => o.status !== 'broken' && !o.stale && o.tests <= 1)
         .sort((a, b) => {
             const scoreA = (a.status === 'fresh' ? 0 : 1) * 1000 + Math.abs(lastPrice - a.mid) / Math.max(1, lastAtr);
             const scoreB = (b.status === 'fresh' ? 0 : 1) * 1000 + Math.abs(lastPrice - b.mid) / Math.max(1, lastAtr);
@@ -2166,13 +2356,47 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles) 
     };
 }
 
-function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance = null, support = null, atr = 0) {
+function isObAlignedWithContext(obSide, ctx = {}) {
+    if (obSide === 'BULL') {
+        if (ctx.aboveVwap === false) return { ok: false, reason: 'Price is below VWAP (counter-trend Bull OB skipped).' };
+        if (ctx.structure === 'Broke down') return { ok: false, reason: 'Market structure broke down (counter-trend Bull OB skipped).' };
+        if (ctx.trend === 'Down') return { ok: false, reason: 'Current timeframe trend is Down (counter-trend Bull OB skipped).' };
+        if (ctx.trend15m === 'Down' || ctx.trend1h === 'Down') {
+            return { ok: false, reason: 'Higher timeframe trend (15m/1h) is Down (counter-trend Bull OB skipped).' };
+        }
+        if (ctx.trend15m != null && ctx.trend1h != null && ctx.trend15m !== 'Up' && ctx.trend1h !== 'Up' && ctx.trend !== 'Up') {
+            return { ok: false, reason: 'No Up trend confirmation across 15m/1h.' };
+        }
+        return { ok: true, reason: '' };
+    }
+    if (obSide === 'BEAR') {
+        if (ctx.aboveVwap === true) return { ok: false, reason: 'Price is above VWAP (counter-trend Bear OB skipped).' };
+        if (ctx.structure === 'Broke up') return { ok: false, reason: 'Market structure broke up (counter-trend Bear OB skipped).' };
+        if (ctx.trend === 'Up') return { ok: false, reason: 'Current timeframe trend is Up (counter-trend Bear OB skipped).' };
+        if (ctx.trend15m === 'Up' || ctx.trend1h === 'Up') {
+            return { ok: false, reason: 'Higher timeframe trend (15m/1h) is Up (counter-trend Bear OB skipped).' };
+        }
+        if (ctx.trend15m != null && ctx.trend1h != null && ctx.trend15m !== 'Down' && ctx.trend1h !== 'Down' && ctx.trend !== 'Down') {
+            return { ok: false, reason: 'No Down trend confirmation across 15m/1h.' };
+        }
+        return { ok: true, reason: '' };
+    }
+    return { ok: true, reason: '' };
+}
+
+function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance = null, support = null, atr = 0, ctx = {}) {
     if (!ob || !Number.isFinite(price) || price <= 0) return null;
-    if (ob.status === 'broken' || Number(ob.tests || 0) > 2) return null;
+    if (ob.status === 'broken' || ob.stale || Number(ob.tests || 0) > 1) return null;
 
     const inside = price >= ob.bot && price <= ob.top;
     const distPts = inside ? 0 : Math.min(Math.abs(price - ob.top), Math.abs(price - ob.bot));
     const distPct = r2((distPts / price) * 100);
+    const maxDistLimit = Number(ctx.maxDistPct) > 0 ? Number(ctx.maxDistPct) : null;
+    if (maxDistLimit && distPct > maxDistLimit) return null;
+
+    const aligned = isObAlignedWithContext(ob.side, ctx);
+    if (!aligned.ok) return null;
+
     const position = inside ? 'INSIDE' : (price > ob.top ? 'ABOVE' : 'BELOW');
 
     // Only keep actionable alignment:
@@ -2278,7 +2502,10 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     ]);
 
     if (!candlesAll.length) {
-        throw new Error(`No Upstox ${tf} candles returned for ${matchedStock.symbol}`);
+        if (hit?.data) return hit.data;
+        throw new Error(Date.now() < v3RateLimitedUntil
+            ? `Upstox candle API rate-limited — please retry ${matchedStock.symbol} in a few seconds`
+            : `No Upstox ${tf} candles returned for ${matchedStock.symbol}`);
     }
 
     const c15 = candles15m || candlesAll;
@@ -2290,7 +2517,7 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     const visStartIdx = Math.max(0, candlesAll.findIndex(c => c.ymd >= firstYmd));
 
     const vwapAll = computeSessionVWAP(candlesAll);
-    const analysis = detectStockOrderBlocksAndLiquidity(candlesAll, visStartIdx, dailyCandles);
+    const analysis = detectStockOrderBlocksAndLiquidity(candlesAll, visStartIdx, dailyCandles, tf);
 
     const visibleCandles = candlesAll.slice(visStartIdx).map((c, idx) => {
         const gIdx = visStartIdx + idx;
@@ -2351,16 +2578,32 @@ async function getStockChartAnalysis(symbol, opts = {}) {
 
     const lastVwap = lastBar.vwap;
     const aboveVwap = lastVwap != null ? lastPrice >= lastVwap : null;
+    const trendTf = computeTrendFromCandles(candlesAll);
     const trend15m = computeTrendFromCandles(c15);
     const trend1h = computeTrendFromCandles(c1h);
 
-    // Build clean trade plan matching the closest actionable OB (same ranking as X-Ray OB Radar)
+    const planCtx = {
+        aboveVwap,
+        structure: analysis.structure,
+        trend: trendTf.dir,
+        trend15m: trend15m.dir,
+        trend1h: trend1h.dir,
+        maxDistPct: tf === '1h' ? 3.5 : 2.5
+    };
+
+    // Build clean trade plan matching the closest trend-aligned actionable OB (same ranking as X-Ray OB Radar)
     let tradePlan = null;
     let planRawOb = null;
-    const activeRawOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && o.tests <= 2);
+    let skippedReason = '';
+    const activeRawOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && !o.stale && o.tests <= 1);
     const rankedPlans = [];
     for (const candidate of activeRawOBs) {
-        const plan = buildObTradePlan(candidate, lastPrice, analysis.swingHighs, analysis.swingLows, analysis.resistance, analysis.support, analysis.atr);
+        const alignCheck = isObAlignedWithContext(candidate.side, planCtx);
+        if (!alignCheck.ok) {
+            if (!skippedReason) skippedReason = alignCheck.reason;
+            continue;
+        }
+        const plan = buildObTradePlan(candidate, lastPrice, analysis.swingHighs, analysis.swingLows, analysis.resistance, analysis.support, analysis.atr, planCtx);
         if (!plan) continue;
         const rankScore = plan.distPct + (candidate.status === 'fresh' ? 0 : 0.08) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
         rankedPlans.push({ candidate, plan, rankScore });
@@ -2382,12 +2625,11 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         };
     }
 
-    // Keep chart clean: show ONLY the primary actionable OB zone
+    // Keep chart clean: show ONLY the primary trend-aligned actionable OB zone (never plot counter-trend trap zones)
     const activeChartOBs = mappedOBs.filter(o => o.status !== 'broken');
-    const primaryOb = (planRawOb && activeChartOBs.find(o => o.bot === planRawOb.bot && o.top === planRawOb.top && o.side === planRawOb.side))
-        || activeChartOBs.find(o => o.isTradeZone);
+    const primaryOb = (planRawOb && activeChartOBs.find(o => o.bot === planRawOb.bot && o.top === planRawOb.top && o.side === planRawOb.side)) || null;
     if (primaryOb) primaryOb.isTradeZone = true;
-    const cleanChartOBs = primaryOb ? [primaryOb] : activeChartOBs.slice(-1);
+    const cleanChartOBs = primaryOb ? [primaryOb] : [];
 
     const strengthBias = tradePlan
         ? (tradePlan.action === 'BUY' ? 'Bullish Setup' : 'Bearish Setup')
@@ -2414,8 +2656,10 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         reading: {
             structure: analysis.structure,
             vsVwap: lastVwap != null ? { above: aboveVwap, vwap: lastVwap } : null,
+            trend: trendTf.dir,
             trend15m: trend15m.dir,
-            trend1h: trend1h.dir
+            trend1h: trend1h.dir,
+            note: tradePlan ? '' : (skippedReason || '')
         }
     };
 
@@ -2425,7 +2669,6 @@ async function getStockChartAnalysis(symbol, opts = {}) {
 
 const obScanCache = new Map();
 const obScanInFlight = new Map();
-const OB_SCAN_TTL_MS = 60000;
 
 async function scanNifty50OrderBlocks(opts = {}) {
     const tf = ['5m', '15m', '1h'].includes(opts.timeframe) ? opts.timeframe : '5m';
@@ -2433,6 +2676,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
     const token = opts.token || '';
     const force = Boolean(opts.force);
     const cacheKey = `${tf}:${token ? token.slice(-8) : 'no-tok'}`;
+    const scanTtl = isMarketOpenIST() ? 180000 : 600000;
 
     const formatScanResponse = (entry) => {
         const filtered = entry.items.filter(item => item.distPct <= maxDistPct);
@@ -2448,7 +2692,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
     };
 
     const cached = obScanCache.get(cacheKey);
-    if (!force && cached && (Date.now() - cached.ts) < OB_SCAN_TTL_MS) {
+    if (!force && cached && (Date.now() - cached.ts) < scanTtl) {
         return formatScanResponse(cached);
     }
 
@@ -2468,23 +2712,28 @@ async function scanNifty50OrderBlocks(opts = {}) {
             batchQuotes = await fetchBatchQuotes(NIFTY_50_STOCKS.map(s => s.upstoxKey), token);
         }
 
-        const rows = await mapWithConcurrency(NIFTY_50_STOCKS, 16, async (st) => {
+        let gotCandlesCount = 0;
+        const rows = await mapWithConcurrency(NIFTY_50_STOCKS, 3, async (st) => {
             try {
+                if (Date.now() < v3RateLimitedUntil) return null;
                 const candles = await fetchCandlesTf(st.upstoxKey, ist.ymd, tf, lookback);
+                await new Promise(r => setTimeout(r, 80));
                 if (!candles || candles.length < 15) return null;
+                gotCandlesCount++;
 
                 const distinctDays = Array.from(new Set(candles.map(c => c.ymd))).sort();
                 const keepDays = distinctDays.slice(-2);
                 const firstYmd = keepDays[0] || candles[0].ymd;
                 const visStartIdx = Math.max(0, candles.findIndex(c => c.ymd >= firstYmd));
 
-                const analysis = detectStockOrderBlocksAndLiquidity(candles, visStartIdx, []);
-                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && o.tests <= 2);
+                const analysis = detectStockOrderBlocksAndLiquidity(candles, visStartIdx, [], tf);
+                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && !o.stale && o.tests <= 1);
                 if (!unbrokenOBs.length) return null;
 
                 const vwapSeries = computeSessionVWAP(candles);
                 const lastBar = candles[candles.length - 1];
                 const lastVwap = vwapSeries[vwapSeries.length - 1];
+                const trendTf = computeTrendFromCandles(candles);
 
                 let price = r2(lastBar.c);
                 let changePct = 0;
@@ -2511,7 +2760,15 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     }
                 }
 
-                // Keep ONLY stocks with a valid trading opportunity near the Order Block (no far away or broken-side stocks)
+                const aboveVwap = lastVwap != null ? price >= lastVwap : null;
+                const baseCtx = {
+                    aboveVwap,
+                    structure: analysis.structure,
+                    trend: trendTf.dir,
+                    maxDistPct: 1.0
+                };
+
+                // Keep ONLY stocks with a valid, trend & VWAP aligned trading opportunity near the Order Block
                 let best = null;
                 for (const ob of unbrokenOBs) {
                     const plan = buildObTradePlan(
@@ -2521,7 +2778,8 @@ async function scanNifty50OrderBlocks(opts = {}) {
                         analysis.swingLows,
                         analysis.resistance,
                         analysis.support,
-                        analysis.atr
+                        analysis.atr,
+                        baseCtx
                     );
                     if (!plan || plan.distPct > 1.0) continue;
                     const rankScore = plan.distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
@@ -2533,6 +2791,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
 
                 const { ob, plan } = best;
                 return {
+                    upstoxKey: st.upstoxKey,
                     symbol: st.symbol,
                     sector: st.sector,
                     price,
@@ -2552,15 +2811,41 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     inside: plan.inside,
                     distPct: plan.distPct,
                     position: plan.position,
-                    aboveVwap: lastVwap != null ? price >= lastVwap : null,
-                    vwap: lastVwap
+                    aboveVwap,
+                    vwap: lastVwap,
+                    structure: analysis.structure,
+                    trend: trendTf.dir
                 };
             } catch (_) {
                 return null;
             }
         });
 
-        const items = rows
+        // Confirm higher timeframe (15m / 1h) alignment for the surviving candidates so radar matches stock X-Ray 1:1
+        const confirmed = await mapWithConcurrency(rows.filter(Boolean), 5, async (item) => {
+            try {
+                const [c15, c1h] = await Promise.all([
+                    tf === '15m' ? Promise.resolve(null) : fetchCandlesTf(item.upstoxKey, ist.ymd, '15m', 14),
+                    tf === '1h' ? Promise.resolve(null) : fetchCandlesTf(item.upstoxKey, ist.ymd, '1h', 25)
+                ]);
+                const trend15m = c15 && c15.length ? computeTrendFromCandles(c15).dir : item.trend;
+                const trend1h = c1h && c1h.length ? computeTrendFromCandles(c1h).dir : item.trend;
+                const htfAligned = isObAlignedWithContext(item.obSide, {
+                    aboveVwap: item.aboveVwap,
+                    structure: item.structure,
+                    trend: item.trend,
+                    trend15m,
+                    trend1h
+                });
+                if (!htfAligned.ok) return null;
+                const { upstoxKey, ...cleanItem } = item;
+                return { ...cleanItem, trend15m, trend1h };
+            } catch (_) {
+                return null;
+            }
+        });
+
+        const items = confirmed
             .filter(Boolean)
             .sort((a, b) => {
                 if (a.inside !== b.inside) return a.inside ? -1 : 1;
@@ -2568,6 +2853,10 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 if (a.status !== b.status) return a.status === 'FRESH' ? -1 : 1;
                 return b.rr - a.rr;
             });
+
+        if (gotCandlesCount === 0 && cached) {
+            return cached;
+        }
 
         const entry = {
             ts: Date.now(),

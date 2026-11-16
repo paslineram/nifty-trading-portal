@@ -822,7 +822,7 @@ app.post('/api/telegram/check', async (req, res) => {
         const body = req.body || {};
         const sendLatest = Boolean(body.sendLatest);
         const effConfig = buildEffectiveTelegramConfig(body);
-        const snapshot = await getLiveMarketSnapshot(effConfig.upstoxToken, effConfig.instrument, true);
+        const snapshot = await getLiveMarketSnapshot(effConfig.upstoxToken, effConfig.instrument, true, { includeXray: false });
         const result = await processSnapshotForTelegram(snapshot, effConfig, { sendLatest });
         res.json({
             success: true,
@@ -988,7 +988,7 @@ async function runBackgroundSignalMonitor() {
         const ordActive = appConfig.upstoxAutoOrder && appConfig.upstoxToken;
         const shouldPoll = !tgState.seeded || !ordState.seeded || tgActive || ordActive;
         if (!shouldPoll) return;
-        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, true);
+        const snapshot = await getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, isMarketOpenIST(), { includeXray: false });
         await Promise.all([
             processSnapshotForTelegram(snapshot, appConfig),
             processSnapshotForAutoOrder(snapshot, appConfig)

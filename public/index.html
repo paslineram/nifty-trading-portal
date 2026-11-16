@@ -728,6 +728,7 @@ document.addEventListener('visibilitychange', () => {
 // ---------- chart: 3 days of 15-min candles + HMA + Supertrend + levels + trendlines ----------
 let _chartSeq = 0;
 function priceChart(d) {
+  if (!d.candles || !d.candles.length) return '<p class="sub" style="padding:14px 0">Candle chart cooling down from Upstox rate-limit — live quote, levels &amp; option chain remain active.</p>';
   const W = 500, H = 235, x0 = 34, x1 = 392, top = 10, bot = 205;
   const clipId = `pc-clip-${++_chartSeq}`;
   const n = d.candles.length, dx = (x1 - x0) / Math.max(1, n);
@@ -1097,7 +1098,11 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
   }
   panel.style.display = 'block';
 
-  const symOptions = (xrayStocksList.length ? xrayStocksList : [{ symbol: xrayChartState.symbol }])
+  const symItems = [...(xrayStocksList || [])];
+  if (xrayChartState.symbol && !symItems.some(s => s.symbol === xrayChartState.symbol)) {
+    symItems.unshift({ symbol: xrayChartState.symbol, changePct: d?.changePct });
+  }
+  const symOptions = symItems
     .map(s => `<option value="${escHtml(s.symbol)}" ${s.symbol === xrayChartState.symbol ? 'selected' : ''}>${escHtml(s.symbol)}${s.changePct != null ? ` (${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%)` : ''}</option>`)
     .join('');
 
@@ -1187,13 +1192,15 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
             <div class="xr-plan-box"><small>Reward Ratio</small><b class="upt">1 : ${tp.rr}</b></div>
           </div>
           <div class="kv-row"><span class="sub">OB Zone (${escHtml(tp.status)})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
+          <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
           <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'} num">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
           <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)} ${rd.trend15m === 'Up' ? '✓' : rd.trend15m === 'Down' ? '✗' : ''}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)} ${rd.trend1h === 'Up' ? '✓' : rd.trend1h === 'Down' ? '✗' : ''}</span></b></div>
           <p class="note" style="margin-top:8px">${escHtml(tp.note)}</p>
         ` : `
+          <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
           <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'} num">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
           <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
-          <p class="note" style="margin-top:8px">No actionable Order Block trade setup at current price on ${escHtml(d.timeframe)}.</p>
+          <p class="note" style="margin-top:8px">${rd.note ? escHtml(rd.note) + ' ' : ''}No trend-aligned Order Block trade setup at current price on ${escHtml(d.timeframe)}.</p>
         `}
       </div>
     </div>
@@ -1294,6 +1301,7 @@ function renderXrayObRadarInner(scan) {
       const vwapCell = s.aboveVwap === null
         ? '<span class="sub">-</span>'
         : `<span class="${s.aboveVwap ? 'upt' : 'dnt'}" style="font-weight:600">${s.aboveVwap ? 'Above' : 'Below'}</span>`;
+      const trendSub = [s.structure, s.trend15m ? `15m ${s.trend15m}` : ''].filter(Boolean).join(' · ');
       return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}', false, '${escHtml(scan.timeframe)}')" title="Click to open ${escHtml(s.symbol)} clean chart">
         <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small>${escHtml(s.sector)}</small></td>
         <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small></td>
@@ -1301,7 +1309,7 @@ function renderXrayObRadarInner(scan) {
         <td class="num"><b>${fmt2(s.bot)}–${fmt2(s.top)}</b><br><small>${escHtml(s.status)}${s.hasFvg ? ' · <b style="color:#d97706">+FVG</b>' : ''}</small></td>
         <td class="num"><small>Ent <b>${fmt2(s.entry)}</b> &middot; SL <b class="dnt">${fmt2(s.sl)}</b><br>Tgt <b class="upt">${fmt2(s.target)}</b></small></td>
         <td class="num"><b class="upt">1:${s.rr}</b></td>
-        <td>${vwapCell}</td>
+        <td>${vwapCell}${trendSub ? `<br><small class="sub">${escHtml(trendSub)}</small>` : ''}</td>
         <td style="text-align:right"><small class="stock-link">Chart &rarr;</small></td>
       </tr>`;
     }).join('')}
