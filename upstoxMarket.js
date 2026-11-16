@@ -538,7 +538,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         const hmaUp = hmaCur != null && hmaPrev != null && hmaCur > hmaPrev;
         const hmaDn = hmaCur != null && hmaPrev != null && hmaCur < hmaPrev;
         const bullHma = hmaCur == null || (c.c >= hmaCur && hmaUp);
-        const bearHma = hmaCur == null || (c.c <= hmaCur || hmaDn);
+        const bearHma = hmaCur == null || (c.c <= hmaCur && hmaDn);
         const resRoom = !lv || lv.res.filter(r => r > c.c).every(r => (r - c.c) > 0.8 * atr);
         const supRoom = !lv || lv.sup.filter(s => s < c.c).every(s => (c.c - s) > 0.8 * atr);
 
@@ -1554,7 +1554,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
         const hmaUp = hmaCur != null && hmaPrev != null && hmaCur > hmaPrev;
         const hmaDn = hmaCur != null && hmaPrev != null && hmaCur < hmaPrev;
         const bullHma = hmaCur == null || (c.c >= hmaCur && hmaUp);
-        const bearHma = hmaCur == null || (c.c <= hmaCur || hmaDn);
+        const bearHma = hmaCur == null || (c.c <= hmaCur && hmaDn);
         const resRoom = !lv || lv.res.filter(r => r > c.c).every(r => (r - c.c) > 0.8 * atr);
         const supRoom = !lv || lv.sup.filter(s => s < c.c).every(s => (c.c - s) > 0.8 * atr);
         const bullBias = stUp === true && (!lv || c.c >= lv.bot) && bullHma && resRoom;

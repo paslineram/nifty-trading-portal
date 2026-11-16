@@ -54,7 +54,16 @@ export class IntradayOrderBlockStrategy {
 
     constructor(public inputs: StrategyInputs = new StrategyInputs()) {}
 
-    public onBar(candle: Candle, inSession: boolean, squareOff: boolean, isNewDay: boolean, positiveGammaEnv: boolean = false, distanceToWall: f64 = 100.0): void {
+    public onBar(
+        candle: Candle,
+        inSession: boolean,
+        squareOff: boolean,
+        isNewDay: boolean,
+        positiveGammaEnv: boolean = false,
+        distanceToWall: f64 = 100.0,
+        supertrendBullish: boolean = true,
+        hmaSlopeUp: boolean = false
+    ): void {
         this.candles.push(candle);
         const barIndex = this.candles.length - 1;
 
@@ -98,11 +107,23 @@ export class IntradayOrderBlockStrategy {
         const canTrade = inSession && this.tradesToday < this.inputs.maxTrades && this.positionSize === 0 && !positiveGammaEnv;
         const wallCheckPasses = distanceToWall > (1.5 * atrVal);
 
+        let bullBias: boolean = true;
+        let bearBias: boolean = true;
+        if (this.inputs.biasMode >= 2) {
+            bullBias = supertrendBullish && hmaSlopeUp;
+            bearBias = !supertrendBullish && !hmaSlopeUp;
+        } else if (this.inputs.biasMode === 1) {
+            bullBias = supertrendBullish;
+            bearBias = !supertrendBullish;
+        }
+
         const longRetest = this.bullishBlock !== null && candle.low <= this.bullishBlock!.top && candle.close > this.bullishBlock!.bot && candle.close > candle.open && volReactOK;
         const shortRetest = this.bearishBlock !== null && candle.high >= this.bearishBlock!.bot && candle.close < this.bearishBlock!.top && candle.close < candle.open && volReactOK;
 
-        const longSignal = longRetest && canTrade && wallCheckPasses;
-        const shortSignal = shortRetest && canTrade && wallCheckPasses;
+        const obLong = longRetest && canTrade && wallCheckPasses && bullBias;
+        const obShort = shortRetest && canTrade && wallCheckPasses && bearBias;
+        const longSignal = obLong;
+        const shortSignal = obShort;
 
         if (this.positionSize !== 0) {
             if (this.positionSize > 0) {
