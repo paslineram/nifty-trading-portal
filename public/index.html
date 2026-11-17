@@ -423,7 +423,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     </div>
   </div>
 
-  <p class="foot">Read-only dashboard. Signals here are a Python port of the Pine strategy - confirm against TradingView. Not financial advice.</p>
+  <p class="foot">Live signal engine &amp; Upstox order/Telegram integration. Confirm levels on chart before live execution. Not financial advice.</p>
 </div>
 
 <script>
@@ -839,10 +839,10 @@ function column(d, m) {
   return `<div class="card">
     <div class="hd"><h3>${d.key}</h3><span class="big">${fmt2(d.price)}</span><b class="${tone(d.change)}">${d.change > 0 ? '+' : ''}${d.change.toFixed(1)} (${d.changePct}%)</b><span class="badge ${sigOn ? 'up' : 'mid'}" style="margin-left:auto">${sigOn ? 'SIGNALS ACTIVE' : 'WATCH ONLY'}</span></div>
     <div style="margin:6px 0"><span class="badge ${d.biasTone || 'dn'}">${d.bias}</span></div>
-    <p class="sub">Signals and indicators use the last completed 15-min bar: ${m.asOf} (close ${fmt2(d.price)}) &middot; ${open ? 'market open' : 'market closed - showing last bar'}</p>
+    <p class="sub">Signals and indicators use the last completed 15-min bar: ${d.latestBarTime || m.asOf} (close ${fmt2(d.latestBarClose ?? d.price)}) &middot; ${open ? 'market open' : 'market closed - showing last bar'}</p>
     <div class="tiles">
-      <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : ''}">${d.supertrend}</b></div>
-      <div><small>HMA slope</small><b>${d.hmaSlope}</b></div>
+      <div><small>Supertrend</small><b class="${d.supertrend === 'UP' ? 'upt' : d.supertrend === 'DOWN' ? 'dnt' : ''}">${d.supertrend}</b></div>
+      <div><small>HMA slope</small><b class="${d.hmaSlope === 'UP' ? 'upt' : d.hmaSlope === 'DOWN' ? 'dnt' : ''}">${d.hmaSlope}</b></div>
       <div><small>ADX</small><b>${d.adx}</b></div>
       <div><small>ATR</small><b>${d.atr}</b></div>
     </div>
@@ -870,12 +870,12 @@ function column(d, m) {
 
     <div class="sc"><h4>Option-seller conditions (advisory)</h4>
       <table>${d.seller.map(r => `<tr><td style="width:24%">${r.name}</td><td style="width:70px"><span class="pill ${r.tag}">${r.tag}</span></td><td><small style="font-size:11.5px;color:var(--fg)">${r.note}</small></td></tr>`).join('')}</table>
-      <p class="note">GEX assumes dealers are long calls and short puts (an estimate). IV rank uses India VIX as a stand-in. Thresholds are rules of thumb and are logged to logs/env_series.csv for later testing.</p></div>
+      <p class="note">GEX estimates dealer gamma exposure from live Upstox option-chain OI &amp; Greeks. IV rank uses 1-year India VIX history as an option-selling volatility regime proxy.</p></div>
 
     <div class="sc"><h4>Agents (vote on direction)</h4>
       <table>${d.agents.map(a => `<tr><td style="width:15%">${a.name}</td><td style="width:78px"><span class="pill ${a.vote} ${voteCls(a.vote)}">${a.vote}</span></td><td><small style="font-size:11.5px;color:var(--fg)">${a.note}</small></td></tr>`).join('')}</table>
       <p style="margin-top:8px;font-size:13px">Composite <b>${cp.score}</b> &rarr; <span class="badge ${cp.tone}">${cp.text}</span></p>
-      <p class="note">Advisory. OI and breadth have no history, so they are logged (logs/context_snapshots.csv) for testing later, not backtested.</p></div>
+      <p class="note">Advisory composite across Trend, 1-hour, Opening Gap, Option Chain OI/PCR, and Prior-Day Range (not backtested as a standalone filter).</p></div>
 
     <div class="sc" style="background:none;padding:0 4px"><h4>Levels vs price</h4>
       <table>${d.levels.map(l => `<tr class="${l.hi ? 'hi' : ''}"><td>${l.name}</td><td>${fmt(l.v)}</td><td class="${tone(l.diff)}" style="color:${l.diff < 0 ? '' : 'var(--fg)'}">${sgn(l.diff)}</td></tr>`).join('')}</table></div>
@@ -1723,8 +1723,8 @@ function renderLive(m) {
   }
   document.getElementById('live-grid').innerHTML =
     `<div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
-     <div class="card"><h3>Autopilot position</h3><p class="sub" style="margin-top:8px">${m.autopilot || 'No open position.'}</p></div>
-     <div class="card"><h3>Paper condor (sideways idea)</h3><p class="sub" style="margin-top:8px">${m.condor || 'No paper condor open. Start <code>python -W ignore condor_paper.py</code> to paper-trade sideways days.'}</p></div>
+     <div class="card"><h3>Autopilot position</h3><p class="sub" style="margin-top:8px">${m.autopilot || 'No active Upstox auto-order position open.'}</p></div>
+     <div class="card"><h3>Sideways condor advisory</h3><p class="sub" style="margin-top:8px">${m.condor || 'No sideways condor suggested — active regime check is evaluated above under Sideways-day check.'}</p></div>
      <div class="card"><h3>Signal &amp; Telegram Alerts Log</h3>
        <table style="margin-top:6px"><tr><th>Logged</th><th>Index</th><th>Event</th><th>Side</th><th>Ref</th><th>Status</th><th>Details</th><th>Setup</th></tr>
        ${m.alerts.length ? m.alerts.map(a => {

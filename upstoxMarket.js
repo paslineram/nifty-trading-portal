@@ -385,15 +385,25 @@ function computeADX(candles, period = 14) {
 function computeHourlyTrend(candles15m) {
     if (candles15m.length < 16) return { dir: 'NEUTRAL', note: 'Insufficient bars for 1-hour trend' };
     const hourly = [];
-    for (let i = 0; i + 3 < candles15m.length; i += 4) {
-        const slice = candles15m.slice(i, i + 4);
-        hourly.push({
-            o: slice[0].o,
-            h: Math.max(...slice.map(x => x.h)),
-            l: Math.min(...slice.map(x => x.l)),
-            c: slice[slice.length - 1].c
-        });
+    let curKey = null;
+    let curBar = null;
+    for (const x of candles15m) {
+        const hh = Number(String(x.ts).slice(11, 13));
+        const mm = Number(String(x.ts).slice(14, 16));
+        const mins = Number.isFinite(hh) && Number.isFinite(mm) ? (hh * 60 + mm) : 555;
+        const slot = Math.min(5, Math.floor(Math.max(0, mins - 555) / 60));
+        const key = `${x.ymd}|${slot}`;
+        if (key !== curKey) {
+            if (curBar) hourly.push(curBar);
+            curKey = key;
+            curBar = { o: x.o, h: x.h, l: x.l, c: x.c };
+        } else {
+            curBar.h = Math.max(curBar.h, x.h);
+            curBar.l = Math.min(curBar.l, x.l);
+            curBar.c = x.c;
+        }
     }
+    if (curBar) hourly.push(curBar);
     if (hourly.length < 6) return { dir: 'NEUTRAL', note: '1-hour trend flat/unclear' };
     const closes = hourly.map(x => x.c);
     const last = closes[closes.length - 1];
@@ -401,7 +411,7 @@ function computeHourlyTrend(candles15m) {
     const sma5 = closes.slice(-5).reduce((a, b) => a + b, 0) / 5;
     if (last > sma5 && last > prev) return { dir: 'BULL', note: `1-hour close (${r2(last)}) above 5-bar SMA (${r2(sma5)})` };
     if (last < sma5 && last < prev) return { dir: 'BEAR', note: `1-hour close (${r2(last)}) below 5-bar SMA (${r2(sma5)})` };
-    return { dir: 'NEUTRAL', note: '1-hour trend flat/unclear' };
+    return { dir: 'NEUTRAL', note: `1-hour close (${r2(last)}) vs 5-bar SMA (${r2(sma5)}) mixed/flat` };
 }
 
 function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLatest, daily, fullHma, fullSt) {
@@ -1009,7 +1019,9 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
             levels,
             why: { pe: 'Waiting for Upstox candle rate-limit recovery', ce: 'Waiting for Upstox candle rate-limit recovery' },
             signals: [],
-            latestTs: new Date().toISOString()
+            latestTs: new Date().toISOString(),
+            latestBarTime: null,
+            latestBarClose: null
         };
     }
 
@@ -1258,7 +1270,9 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         levels,
         why: { pe: peText, ce: ceText },
         signals: signalsEnabled ? replay.signals : [],
-        latestTs: latestBar.ts
+        latestTs: latestBar.ts,
+        latestBarTime: formatAsOf(latestBar.ts),
+        latestBarClose: r2(latestBar.c)
     };
 }
 
