@@ -356,7 +356,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     </div>
 
     <div class="card" id="jrn-broker-card">
-      <h3>Upstox Live Broker Trades &amp; Positions (Today)</h3>
+      <div class="hd" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <h3 style="margin:0">Upstox Live Broker Trades &amp; Positions (Today)</h3>
+        <button type="button" id="jrn-broker-add-all-btn" class="btn" style="padding:4px 10px;font-size:11px;display:none" onclick="addAllBrokerPositionsToJournal(this)">+ Add All Positions</button>
+      </div>
+      <p id="jrn-broker-msg" class="sub" style="margin-top:6px;display:none"></p>
       <div id="jrn-broker-body" style="margin-top:8px"><p class="sub">Checking Upstox order/trade book…</p></div>
     </div>
 
@@ -2059,16 +2063,212 @@ function renderJournalEntries() {
   }).join('');
 }
 
+function formatBrokerTime(raw) {
+  if (!raw) return '';
+  const s = String(raw).trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}:\d{2})/);
+  if (m) {
+    const dt = new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:00+05:30`);
+    if (!Number.isNaN(dt.getTime())) {
+      return dt.toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '');
+    }
+  }
+  const dt = new Date(s);
+  if (!Number.isNaN(dt.getTime())) {
+    return dt.toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).replace(',', '');
+  }
+  return s;
+}
+
+function getBrokerPositionRef(p) {
+  return `pos:${p.symbol}:${p.product || '-'}:${p.qty}:${Math.round((p.pnl || 0) * 10)}`;
+}
+
+function getBrokerTradeRef(t) {
+  return `trade:${t.id || `${t.symbol}|${t.time}|${t.side}|${t.qty}|${t.price}`}`;
+}
+
+function hasJournalBrokerRef(ref) {
+  return Boolean(ref && (journalData.entries || []).some(e => e.brokerRef === ref));
+}
+
+function buildBrokerPositionPayload(p) {
+  const symTrades = (journalData.broker?.brokerTrades || [])
+    .filter(t => t.symbol === p.symbol)
+    .sort((a, b) => String(a.time).localeCompare(String(b.time)));
+  const isClosed = Number(p.qty) === 0 && Number(p.buyPrice) > 0 && Number(p.sellPrice) > 0;
+
+  let side;
+  if (Number(p.qty) > 0) side = 'BUY';
+  else if (Number(p.qty) < 0) side = 'SELL';
+  else if (symTrades.length && /^(BUY|SELL)$/i.test(symTrades[0].side)) side = symTrades[0].side.toUpperCase();
+  else {
+    const buyProfitable = Number(p.sellPrice) >= Number(p.buyPrice);
+    side = Number(p.pnl) >= 0 ? (buyProfitable ? 'BUY' : 'SELL') : (buyProfitable ? 'SELL' : 'BUY');
+  }
+
+  let qty = Math.abs(Number(p.qty || 0));
+  if (!qty) {
+    qty = Math.max(Number(p.buyQty || 0), Number(p.sellQty || 0));
+  }
+  if (!qty && symTrades.length) {
+    const sideQty = symTrades.filter(t => String(t.side).toUpperCase() === side).reduce((s, t) => s + Number(t.qty || 0), 0);
+    qty = sideQty || Math.max(...symTrades.map(t => Number(t.qty || 0)));
+  }
+  if (!qty && isClosed) {
+    const diff = Math.abs(Number(p.sellPrice) - Number(p.buyPrice));
+    if (diff > 0.01) qty = Math.max(1, Math.round(Math.abs(Number(p.pnl || 0)) / diff));
+  }
+  if (!qty) qty = 1;
+
+  const entryPrice = isClosed
+    ? (side === 'SELL' ? Number(p.sellPrice) : Number(p.buyPrice))
+    : (side === 'SELL' ? (Number(p.sellPrice) || Number(p.ltp) || 0.05) : (Number(p.buyPrice) || Number(p.ltp) || 0.05));
+  const exitPrice = isClosed ? (side === 'SELL' ? Number(p.buyPrice) : Number(p.sellPrice)) : null;
+
+  const firstTime = symTrades[0]?.time ? formatBrokerTime(symTrades[0].time) : formatBrokerTime(new Date().toISOString());
+  const lastTime = isClosed && symTrades.length > 1 ? formatBrokerTime(symTrades[symTrades.length - 1].time) : null;
+
+  return {
+    symbol: p.symbol,
+    side,
+    lots: 1,
+    lotSize: qty,
+    qty,
+    entryTime: firstTime,
+    exitTime: lastTime,
+    entryPrice: Math.round(entryPrice * 100) / 100,
+    exitPrice: exitPrice != null ? Math.round(exitPrice * 100) / 100 : null,
+    pnl: isClosed ? Math.round(Number(p.pnl || 0)) : null,
+    exitReason: isClosed ? 'BROKER' : null,
+    setup: `Upstox Pos (${p.product || '-'})`,
+    notes: isClosed
+      ? `Imported from Upstox Today's Position (Buy Avg ${fmt2(p.buyPrice)}, Sell Avg ${fmt2(p.sellPrice)})`
+      : `Imported open Upstox Position (LTP ${fmt2(p.ltp)}, MTM ${p.pnl < 0 ? '-' : '+'}₹${fmt(Math.abs(p.pnl))})`,
+    brokerRef: getBrokerPositionRef(p)
+  };
+}
+
+function buildBrokerTradePayload(t) {
+  const qty = Math.max(1, Number(t.qty) || 1);
+  return {
+    symbol: t.symbol,
+    side: String(t.side || 'BUY').toUpperCase(),
+    lots: 1,
+    lotSize: qty,
+    qty,
+    entryTime: formatBrokerTime(t.time) || undefined,
+    entryPrice: Number(t.price) || 0.05,
+    exitPrice: null,
+    setup: `Upstox Fill (${t.product || '-'})`,
+    notes: `Executed trade @ ${t.time}`,
+    brokerRef: getBrokerTradeRef(t)
+  };
+}
+
+function showBrokerJournalMsg(text, cls = 'upt') {
+  const msgEl = document.getElementById('jrn-broker-msg');
+  if (msgEl) {
+    msgEl.style.display = 'block';
+    msgEl.className = cls;
+    msgEl.textContent = text;
+  }
+}
+
+async function addBrokerPositionToJournal(idx, btn) {
+  const p = (journalData.broker?.positions || [])[idx];
+  if (!p) return;
+  const payload = buildBrokerPositionPayload(p);
+  if (hasJournalBrokerRef(payload.brokerRef)) {
+    showBrokerJournalMsg(`${p.symbol} is already logged in Personal Trade Journal.`, 'mid');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Failed to add broker position');
+    journalData.entries = data.entries;
+    journalData.summary = data.summary;
+    renderJournalSummary();
+    renderJournalEntries();
+    renderBrokerJournal();
+    showBrokerJournalMsg(`Added ${p.symbol} (${payload.side}, qty ${payload.qty}) to Personal Trade Journal.`, 'upt');
+  } catch (err) {
+    showBrokerJournalMsg(err.message || 'Could not add position to journal.', 'dnt');
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function addBrokerTradeToJournal(idx, btn) {
+  const t = (journalData.broker?.brokerTrades || [])[idx];
+  if (!t) return;
+  const payload = buildBrokerTradePayload(t);
+  if (hasJournalBrokerRef(payload.brokerRef)) {
+    showBrokerJournalMsg(`${t.symbol} (${t.time}) is already logged in Personal Trade Journal.`, 'mid');
+    return;
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await r.json();
+    if (!r.ok || !data.success) throw new Error(data.error || 'Failed to add executed trade');
+    journalData.entries = data.entries;
+    journalData.summary = data.summary;
+    renderJournalSummary();
+    renderJournalEntries();
+    renderBrokerJournal();
+    showBrokerJournalMsg(`Added ${t.symbol} ${t.side} (${t.qty} @ ${fmt2(t.price)}) to Personal Trade Journal.`, 'upt');
+  } catch (err) {
+    showBrokerJournalMsg(err.message || 'Could not add trade to journal.', 'dnt');
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function addAllBrokerPositionsToJournal(btn) {
+  const positions = journalData.broker?.positions || [];
+  if (!positions.length) return;
+  const pending = positions.map(p => buildBrokerPositionPayload(p)).filter(pl => !hasJournalBrokerRef(pl.brokerRef));
+  if (!pending.length) {
+    showBrokerJournalMsg('All Upstox positions from today are already in your Personal Trade Journal.', 'mid');
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Adding…'; }
+  let added = 0;
+  try {
+    for (const payload of pending) {
+      const r = await fetch('/api/journal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await r.json();
+      if (r.ok && data.success) {
+        journalData.entries = data.entries;
+        journalData.summary = data.summary;
+        added += 1;
+      }
+    }
+    renderJournalSummary();
+    renderJournalEntries();
+    renderBrokerJournal();
+    showBrokerJournalMsg(`Added ${added} Upstox position(s) to Personal Trade Journal.`, 'upt');
+  } catch (err) {
+    showBrokerJournalMsg(err.message || 'Failed while adding positions.', 'dnt');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '+ Add All Positions'; }
+  }
+}
+
 function renderBrokerJournal() {
   const el = document.getElementById('jrn-broker-body');
+  const addAllBtn = document.getElementById('jrn-broker-add-all-btn');
   if (!el) return;
   const b = journalData.broker;
   if (!b || !b.available) {
+    if (addAllBtn) addAllBtn.style.display = 'none';
     el.innerHTML = `<p class="sub">${escHtml(b?.reason || 'Upstox broker trade book unavailable.')}</p>`;
     return;
   }
   const hasTrades = (b.brokerTrades || []).length > 0;
   const hasPos = (b.positions || []).length > 0;
+  if (addAllBtn) addAllBtn.style.display = hasPos ? 'inline-block' : 'none';
   if (!hasTrades && !hasPos) {
     el.innerHTML = '<p class="sub">Upstox connected — 0 executed broker trades or open positions today.</p>';
     return;
@@ -2076,13 +2276,25 @@ function renderBrokerJournal() {
   let html = '';
   if (hasPos) {
     html += `<div class="hd" style="margin-bottom:6px"><h4 style="margin:0">Today\'s Positions</h4><small class="${tone(b.dayPnl)}">Day MTM: <b>${b.dayPnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(b.dayPnl))}</b></small></div>
-      <table style="margin-bottom:10px"><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>LTP</th><th>PnL (&#8377;)</th></tr>
-      ${b.positions.map(p => `<tr><td><b>${escHtml(p.symbol)}</b></td><td>${escHtml(p.product)}</td><td>${p.qty}</td><td>${fmt2(p.buyPrice)}</td><td>${fmt2(p.sellPrice)}</td><td>${fmt2(p.ltp)}</td><td class="${tone(p.pnl)}"><b>${p.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(p.pnl))}</b></td></tr>`).join('')}</table>`;
+      <table style="margin-bottom:10px"><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>LTP</th><th>PnL (&#8377;)</th><th>Journal</th></tr>
+      ${b.positions.map((p, idx) => {
+        const added = hasJournalBrokerRef(getBrokerPositionRef(p));
+        const btnHtml = added
+          ? '<span class="pill GOOD">Added</span>'
+          : `<button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="addBrokerPositionToJournal(${idx}, this)">+ Add</button>`;
+        return `<tr><td><b>${escHtml(p.symbol)}</b></td><td>${escHtml(p.product)}</td><td>${p.qty}</td><td>${fmt2(p.buyPrice)}</td><td>${fmt2(p.sellPrice)}</td><td>${fmt2(p.ltp)}</td><td class="${tone(p.pnl)}"><b>${p.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(p.pnl))}</b></td><td>${btnHtml}</td></tr>`;
+      }).join('')}</table>`;
   }
   if (hasTrades) {
     html += `<h4 style="margin:0 0 6px">Executed Trades Today</h4>
-      <table><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg Price</th><th>Product</th></tr>
-      ${b.brokerTrades.map(t => `<tr><td>${escHtml(t.time)}</td><td><b>${escHtml(t.symbol)}</b></td><td class="${t.side === 'BUY' ? 'upt' : 'dnt'}"><b>${escHtml(t.side)}</b></td><td>${t.qty}</td><td>${fmt2(t.price)}</td><td>${escHtml(t.product)}</td></tr>`).join('')}</table>`;
+      <table><tr><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Avg Price</th><th>Product</th><th>Journal</th></tr>
+      ${b.brokerTrades.map((t, idx) => {
+        const added = hasJournalBrokerRef(getBrokerTradeRef(t));
+        const btnHtml = added
+          ? '<span class="pill GOOD">Added</span>'
+          : `<button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="addBrokerTradeToJournal(${idx}, this)">+ Add</button>`;
+        return `<tr><td>${escHtml(t.time)}</td><td><b>${escHtml(t.symbol)}</b></td><td class="${t.side === 'BUY' ? 'upt' : 'dnt'}"><b>${escHtml(t.side)}</b></td><td>${t.qty}</td><td>${fmt2(t.price)}</td><td>${escHtml(t.product)}</td><td>${btnHtml}</td></tr>`;
+      }).join('')}</table>`;
   }
   el.innerHTML = html;
 }
@@ -2215,6 +2427,7 @@ async function deleteJournalEntry(id) {
     journalData.summary = data.summary;
     renderJournalSummary();
     renderJournalEntries();
+    renderBrokerJournal();
   }
 }
 

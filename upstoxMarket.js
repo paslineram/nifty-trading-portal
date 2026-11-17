@@ -2066,6 +2066,8 @@ async function fetchUpstoxBrokerJournal(token) {
             symbol: p.trading_symbol || p.instrument_token || '-',
             product: p.product || '-',
             qty: Number(p.quantity || 0),
+            buyQty: Number(p.buy_quantity ?? p.day_buy_quantity ?? 0),
+            sellQty: Number(p.sell_quantity ?? p.day_sell_quantity ?? 0),
             buyPrice: Number(p.buy_price || 0),
             sellPrice: Number(p.sell_price || 0),
             ltp: Number(p.last_price || 0),

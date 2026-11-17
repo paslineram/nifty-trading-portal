@@ -659,6 +659,7 @@ app.post('/api/journal', (req, res) => {
         exitReason: isClosed ? String(body.exitReason || 'MANUAL').trim().toUpperCase() : null,
         setup: String(body.setup || 'OB/FVG').trim(),
         notes: String(body.notes || '').trim(),
+        ...(body.brokerRef ? { brokerRef: String(body.brokerRef).trim() } : {}),
         pnl,
         status: isClosed ? 'Closed' : 'Open'
     };
