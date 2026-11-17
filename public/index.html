@@ -119,13 +119,13 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 <body>
 
 <div id="login-container">
-  <div class="login-card">
+  <form class="login-card" onsubmit="handleLogin(event)">
     <h2 style="margin-bottom:16px;color:var(--accent)">Paslin Portal Login</h2>
-    <div style="margin-bottom:12px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">Username</label><input type="text" id="login-user"></div>
-    <div style="margin-bottom:16px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">Password</label><input type="password" id="login-pass"></div>
-    <button class="btn" style="width:100%" onclick="handleLogin()">Login to Dashboard</button>
+    <div style="margin-bottom:12px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">Username</label><input type="text" id="login-user" autocomplete="username" required></div>
+    <div style="margin-bottom:16px"><label style="font-size:12px;color:var(--mut);display:block;margin-bottom:4px">Password</label><input type="password" id="login-pass" autocomplete="current-password" required></div>
+    <button type="submit" id="login-btn" class="btn" style="width:100%">Login to Dashboard</button>
     <p id="login-err" style="color:var(--dn);font-size:12px;margin-top:8px;text-align:center;display:none">Invalid credentials. Please try again.</p>
-  </div>
+  </form>
 </div>
 
 <div id="portal-container" style="display:none">
@@ -667,24 +667,43 @@ function restoreSettingsInputsFromBrowser() {
   });
 }
 
-async function handleLogin() {
+async function handleLogin(e) {
+  if (e) e.preventDefault();
   const username = document.getElementById('login-user').value.trim();
   const password = document.getElementById('login-pass').value.trim();
   const err = document.getElementById('login-err');
+  const btn = document.getElementById('login-btn');
   err.style.display = 'none';
+  if (btn) { btn.disabled = true; btn.textContent = 'Logging in…'; }
   try {
-    const r = await fetch('/api/login', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({username, password})});
-    if (!r.ok) throw new Error('bad');
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await r.json().catch(() => null);
+    if (r.status === 401) {
+      throw new Error('Invalid credentials — check the ADMIN_USER / ADMIN_PASS configured for this environment.');
+    }
+    if (!r.ok || !data?.success) {
+      throw new Error(data?.message || `Login failed (HTTP ${r.status}). Refresh the preview and try again.`);
+    }
     try { localStorage.setItem('paslinAuth', '1'); } catch (_) {}
     showPortal();
-  } catch (e) { err.style.display = 'block'; }
+  } catch (ex) {
+    err.textContent = ex?.message || 'Invalid credentials. Please try again.';
+    err.style.display = 'block';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Login to Dashboard'; }
+  }
 }
 async function showPortal() {
   document.getElementById('login-container').style.display = 'none';
   document.getElementById('portal-container').style.display = 'block';
   bindSettingsDirtyListeners();
   restoreSettingsInputsFromBrowser();
-  await loadSettings();
+  loadSettings();
   loadLive();
 }
 function handleLogout() {
@@ -699,7 +718,6 @@ function handleLogout() {
   document.getElementById('login-container').style.display = 'flex';
 }
 try { if (localStorage.getItem('paslinAuth') === '1') showPortal(); } catch (_) {}
-document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
 
 function tick() {
   const d = new Date();
@@ -1568,6 +1586,9 @@ function renderXRay(m) {
         </table>
       </div>
     </div>`;
+  } else if (m.xrayWarming) {
+    html = `<div class="card"><p class="sub">Warming NIFTY 50 Breadth, Sector Heatmap &amp; Order Block scanner in background — updating automatically…</p></div>`;
+    setTimeout(() => { if (!liveInFlight) loadLive(false); }, 5000);
   } else {
     html = `<div class="card"><p class="sub">Order Block scanner temporarily unavailable.</p></div>`;
   }

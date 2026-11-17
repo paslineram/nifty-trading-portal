@@ -205,10 +205,10 @@ let strategyJournalCache = { ts: 0, instrument: '', data: null };
 // Live market snapshot is provided by ./upstoxMarket.js using Upstox v2/v3 APIs.
 
 app.post('/api/login', (req, res) => {
-    const { username, password } = req.body;
-    const adminUser = process.env.ADMIN_USER || 'admin';
-    const adminPass = process.env.ADMIN_PASS || 'nifty2026';
-    if (username === adminUser && password === adminPass) {
+    const { username, password } = req.body || {};
+    const adminUser = (process.env.ADMIN_USER || 'admin').trim();
+    const adminPass = (process.env.ADMIN_PASS || 'nifty2026').trim();
+    if (String(username || '').trim() === adminUser && String(password || '').trim() === adminPass) {
         res.json({ success: true, token: 'mock-jwt-session-token-xyz' });
     } else {
         res.status(401).json({ success: false, message: 'Invalid credentials' });

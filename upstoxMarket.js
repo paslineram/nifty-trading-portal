@@ -1453,6 +1453,44 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
 }
 
 const lastGoodSnapshotByMode = new Map();
+let lastXraySnapshot = { ts: 0, tokenTail: '', data: null };
+const xrayInFlight = new Map();
+
+function getXraySnapshotOrWarm(todayYmd, token, marketOpen, force = false) {
+    const tokenTail = token ? token.slice(-12) : 'no-tok';
+    const xrayTtl = marketOpen ? 30000 : 120000;
+    if (!force && lastXraySnapshot.data && lastXraySnapshot.tokenTail === tokenTail && (Date.now() - lastXraySnapshot.ts) < xrayTtl) {
+        return { promise: Promise.resolve(lastXraySnapshot.data), fromCache: true };
+    }
+    let p = xrayInFlight.get(tokenTail);
+    if (!p) {
+        p = fetchMarketXRay(todayYmd, token, marketOpen)
+            .then(res => {
+                if (res) {
+                    lastXraySnapshot = { ts: Date.now(), tokenTail, data: res };
+                    for (const entry of cache.values()) {
+                        if (entry?.data && !entry.data.xray) {
+                            entry.data.xray = res;
+                            entry.data.xrayWarming = false;
+                        }
+                    }
+                    for (const snap of lastGoodSnapshotByMode.values()) {
+                        if (snap && !snap.xray) {
+                            snap.xray = res;
+                            snap.xrayWarming = false;
+                        }
+                    }
+                }
+                return res;
+            })
+            .catch(() => null)
+            .finally(() => {
+                if (xrayInFlight.get(tokenTail) === p) xrayInFlight.delete(tokenTail);
+            });
+        xrayInFlight.set(tokenTail, p);
+    }
+    return { promise: p, fromCache: false };
+}
 
 async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', force = false, opts = {}) {
     const rawMode = String(selectedInstrument || 'BOTH').toUpperCase();
@@ -1470,14 +1508,31 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     const vixInfo = await getIndiaVixStats(ist.ymd, quoteRes.quotes);
 
     const staleHit = lastGoodSnapshotByMode.get(mode);
+    const fallbackXray = staleHit?.xray || lastXraySnapshot.data || null;
+    let xrayTimedOut = false;
+
+    let xrayTask;
+    if (includeXray) {
+        const { promise, fromCache } = getXraySnapshotOrWarm(ist.ymd, token, marketOpen, force);
+        xrayTask = fromCache
+            ? promise
+            : Promise.race([
+                promise,
+                new Promise(resolve => setTimeout(() => {
+                    xrayTimedOut = true;
+                    resolve(fallbackXray);
+                }, 4500))
+            ]);
+    } else {
+        xrayTask = Promise.resolve(fallbackXray);
+    }
+
     let instruments;
     let xray;
     try {
         [instruments, xray] = await Promise.all([
             Promise.all(INSTRUMENTS.map(inst => buildInstrumentData(inst, ist.ymd, quoteRes.quotes, vixInfo, token, mode))),
-            includeXray
-                ? fetchMarketXRay(ist.ymd, token, marketOpen).catch(() => staleHit?.xray || null)
-                : Promise.resolve(staleHit?.xray || null)
+            xrayTask
         ]);
     } catch (err) {
         if (staleHit) {
@@ -1510,7 +1565,8 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     }
     notices.push(`Signal filter: ${mode === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : mode + ' only'}.`);
 
-    const finalXray = xray || staleHit?.xray || null;
+    const finalXray = xray || fallbackXray || null;
+    const xrayWarming = Boolean(includeXray && xrayTimedOut && !finalXray);
     const data = {
         asOf,
         fetchedAt,
@@ -1523,6 +1579,7 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
         notice: notices.join(' '),
         instruments,
         xray: finalXray,
+        xrayWarming,
         autopilot: null,
         condor: null,
         alerts: []
@@ -2901,6 +2958,7 @@ function clearMarketCache() {
     cache.clear();
     stockChartCache.clear();
     obScanCache.clear();
+    lastXraySnapshot = { ts: 0, tokenTail: '', data: null };
 }
 
 module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, isMarketOpenIST, getStockChartAnalysis, scanNifty50OrderBlocks };
