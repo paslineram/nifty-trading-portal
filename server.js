@@ -19,6 +19,10 @@ const {
     processSnapshotForAutoOrder,
     clearOrderLogs
 } = require('./upstoxOrders');
+const {
+    buildSheetsDatasets,
+    buildExcelWorkbookBuffer
+} = require('./sheetsSync');
 
 const app = express();
 const PORT = 3000;
@@ -971,6 +975,62 @@ app.post('/api/upstox/order-test', async (req, res) => {
 app.delete('/api/upstox/orders', async (req, res) => {
     const state = await clearOrderLogs();
     res.json({ success: true, state });
+});
+
+async function collectPortalDatasets({ includeStrategy = true } = {}) {
+    const journalEntries = loadJournalEntries();
+    const telegramLogs = loadTelegramState().logs || [];
+    const orderLogs = loadOrderState().logs || [];
+    let strategyTrades = strategyJournalCache.data?.trades || [];
+
+    const now = Date.now();
+    const cacheFresh = strategyJournalCache.data &&
+        strategyJournalCache.instrument === appConfig.instrument &&
+        (now - strategyJournalCache.ts) < 300000;
+
+    if (includeStrategy && !cacheFresh) {
+        const replay = await runBacktestSimulation({
+            instrument: appConfig.instrument,
+            lookbackDays: 14,
+            lots: 1,
+            niftyLotSize: 25,
+            sensexLotSize: 20,
+            obMaxAge: appConfig.obMaxAge,
+            maxTradesPerDay: appConfig.maxTrades,
+            useTrendlineExit: true
+        }).catch(() => null);
+        if (replay) {
+            strategyJournalCache = { ts: now, instrument: appConfig.instrument, data: replay };
+            strategyTrades = replay.trades || [];
+        }
+    }
+
+    const safeConfig = getSafeConfig();
+    const exportedAt = new Date().toISOString();
+    const datasets = buildSheetsDatasets({
+        journalEntries,
+        telegramLogs,
+        orderLogs,
+        strategyTrades,
+        safeConfig,
+        exportedAt
+    });
+
+    return { datasets };
+}
+
+app.get('/api/export/excel', async (req, res) => {
+    try {
+        const { datasets } = await collectPortalDatasets({ includeStrategy: true });
+        const buffer = buildExcelWorkbookBuffer(datasets);
+        const dateTag = getUpstoxTradingDayIST();
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="Room_To_Grow_Workbook_${dateTag}.xlsx"`);
+        res.setHeader('Cache-Control', 'no-store');
+        res.send(buffer);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err?.message || 'Failed to generate Excel workbook' });
+    }
 });
 
 app.post('/api/bot/toggle', (req, res) => {

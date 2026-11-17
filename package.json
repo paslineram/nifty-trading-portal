@@ -7,15 +7,16 @@
     "dev": "node server.js",
     "start": "node server.js",
     "build": "npm run asbuild",
-    "lint": "node --check server.js && node --check upstoxMarket.js && node --check telegramNotifier.js && node --check upstoxOrders.js",
+    "lint": "node --check server.js && node --check upstoxMarket.js && node --check telegramNotifier.js && node --check upstoxOrders.js && node --check sheetsSync.js",
     "asbuild": "asc assembly/index.ts --target release"
   },
   "dependencies": {
-    "express": "^4.19.2",
+    "@assemblyscript/loader": "^0.27.27",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
     "csv-parser": "^3.0.0",
-    "@assemblyscript/loader": "^0.27.27"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "assemblyscript": "^0.27.27",

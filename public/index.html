@@ -187,7 +187,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       <span id="signals-notice" class="sub">Loading recent index signals…</span>
       <span style="display:flex;align-items:center;gap:8px">
         <small id="signals-refresh-status">Auto-refresh in 30s</small>
-        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadLive(true); loadTelegramStatus();">Refresh</button>
+        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadLive(true)">Refresh</button>
       </span>
     </div>
     <div id="signals-body"><p class="sub">Loading…</p></div>
@@ -220,9 +220,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
           <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--mut);border-color:var(--mut)" onclick="clearUpstoxOrderHistory()">Clear Dispatch Log</button>
         </div>
       </div>
-      <p class="sub" style="margin-top:4px">Test sending an order signal to Upstox: resolves the nearest option contract (<code>NIFTY=25</code>, <code>SENSEX=20</code>), validates live margin via <code>/v2/charges/margin</code> in <b>Dry Run</b>, or places an order in <b>Sandbox</b> / <b>Live HFT</b>.</p>
+      <p class="sub" style="margin-top:4px">Test sending an order signal to Upstox: resolves the nearest active option contract and exchange lot size from Upstox, validates live margin via <code>/v2/charges/margin</code> in <b>Dry Run</b>, or places an order in <b>Sandbox</b> / <b>Live HFT</b>.</p>
       <form class="f" style="margin:10px 0 4px" onsubmit="sendCustomUpstoxOrder(event)">
-        <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Lot 25)</option><option value="SENSEX">SENSEX (Lot 20)</option></select></label>
+        <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Exchange Lot)</option><option value="SENSEX">SENSEX (Exchange Lot)</option></select></label>
         <label>Signal Side <select id="upx-ord-side"><option value="SELL PE">SELL PE (Bullish)</option><option value="SELL CE">SELL CE (Bearish)</option><option value="BUY CE">BUY CE</option><option value="BUY PE">BUY PE</option></select></label>
         <label>Execution Mode <select id="upx-ord-mode" onchange="syncOrderModeBadge()"><option value="DRY_RUN">DRY_RUN (Contract + Margin Check)</option><option value="SANDBOX">SANDBOX (api-sandbox.upstox.com)</option><option value="LIVE">LIVE HFT (api-hft.upstox.com)</option></select></label>
         <label>Product <select id="upx-ord-product"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
@@ -234,8 +234,8 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       </form>
       <p id="upx-ord-msg" class="sub" style="margin-top:8px;display:none"></p>
       <div id="upx-ord-preview" style="margin-top:10px"></div>
-      <div id="upx-ord-logs" style="margin-top:10px"></div>
-      <div id="upx-ord-book" style="margin-top:10px"></div>
+      <div id="upx-ord-logs" style="margin-top:10px;overflow-x:auto"></div>
+      <div id="upx-ord-book" style="margin-top:10px;overflow-x:auto"></div>
     </div>
   </div>
 
@@ -298,7 +298,10 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
   <div id="tab-history" class="tab-content">
     <div class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <span id="jrn-status" class="sub">Loading Trade Journal &amp; Upstox broker feed…</span>
-      <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadJournal(true)">Refresh Journal</button>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <a href="/api/export/excel" class="btn" style="padding:4px 10px;font-size:11px;background:var(--px);border-color:var(--px);text-decoration:none">Download Excel (.xlsx)</a>
+        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadJournal(true)">Refresh Journal</button>
+      </div>
     </div>
 
     <div class="card">
@@ -418,6 +421,17 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       </form>
       <p id="settings-msg" class="sub" style="margin-top:10px;display:none"></p>
     </div>
+    <div id="excel-export-card" class="card">
+      <div class="hd" style="justify-content:space-between">
+        <h3>4. Excel Workbook Export <small style="font-weight:400">(Logs, Journal &amp; Settings)</small></h3>
+        <span class="badge mid">MULTI-SHEET .XLSX</span>
+      </div>
+      <p class="sub" style="margin-top:4px">Download an Excel (<code>.xlsx</code>) workbook containing <b>Personal Journal</b>, <b>Telegram Logs</b>, <b>Upstox Order Logs</b>, <b>Strategy Signals</b>, and non-secret <b>Settings</b>. Secret tokens are masked and never exported.</p>
+      <div style="margin-top:10px">
+        <a href="/api/export/excel" class="btn" style="background:var(--px);border-color:var(--px);text-decoration:none;display:inline-flex;align-items:center">Download Multi-Sheet Excel (.xlsx)</a>
+      </div>
+    </div>
+
     <div id="settings-result" class="card" style="display:none">
       <div class="hd" style="justify-content:space-between">
         <h3>Saved Credentials &amp; Return Values</h3>
@@ -1606,21 +1620,31 @@ function renderSignalSummary(m) {
     ? new Date(m.fetchedAt).toLocaleTimeString('en-GB', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + ' IST'
     : (m.asOf || '');
   if (sNotice) {
-    sNotice.className = 'sub';
-    sNotice.textContent = `Recent index signals (${m.activeInstrument || 'BOTH'} · ${m.asOf || ''}). Updated ${syncedAt}.`;
+    if (m.upstoxDaily?.needsDailyUpdate) {
+      sNotice.className = 'mid';
+      sNotice.innerHTML = `Recent index signals (${escHtml(m.activeInstrument || 'BOTH')} &middot; ${escHtml(m.asOf || '')}). Updated ${escHtml(syncedAt)}. &middot; <b class="dnt">${escHtml(m.upstoxDaily.reason)}</b>`;
+    } else {
+      sNotice.className = 'sub';
+      sNotice.textContent = `Recent index signals (${m.activeInstrument || 'BOTH'} · ${m.asOf || ''}). Updated ${syncedAt}.`;
+    }
   }
 
   const insts = m.instruments || [];
-  const allSigs = insts.flatMap(d => (d.signals || []).map(s => ({ ...s, index: d.key })));
+  const activeInsts = insts.filter(d => d.signalsEnabled !== false);
+  const allSigs = activeInsts.flatMap(d => (d.signals || []).map(s => ({ ...s, index: d.key })));
   const openCnt = allSigs.filter(s => !s.exitReason).length;
   const closedCnt = allSigs.filter(s => s.exitReason).length;
-  const totalPts = insts.reduce((sum, d) => sum + (Number(d.paperPts) || 0), 0);
+  const totalPts = activeInsts.reduce((sum, d) => sum + (Number(d.paperPts) || 0), 0);
+  const netBadgeLabel = activeInsts.length > 1
+    ? activeInsts.map(d => `${d.key}: ${sgn(Number(d.paperPts) || 0)} pts`).join(' · ')
+    : `Replay Net: ${sgn(totalPts)} pts`;
+  const netBadgeCls = activeInsts.length === 1 ? (totalPts >= 0 ? 'up' : 'dn') : (totalPts >= 0 ? 'up' : 'mid');
 
   let html = `
     <div class="card">
       <div class="hd">
         <h3>Signal Summary</h3>
-        <span class="badge ${totalPts >= 0 ? 'up' : 'dn'}" style="margin-left:auto">Replay Net: ${sgn(totalPts)} pts</span>
+        <span class="badge ${netBadgeCls}" style="margin-left:auto">${escHtml(netBadgeLabel)}</span>
       </div>
       <div class="tiles" style="margin-top:10px">
         <div><small>Total Signals</small><b>${allSigs.length}</b></div>
@@ -1633,21 +1657,35 @@ function renderSignalSummary(m) {
       <h3>Recent Index Signals (OB / FVG &amp; Trendline Exits)</h3>
       ${insts.map(d => {
         const sigOn = d.signalsEnabled !== false;
+        const paperPts = Number(d.paperPts) || 0;
+        const headerStat = sigOn
+          ? `<small class="${tone(paperPts)}">Paper pts: <b>${sgn(paperPts)}</b></small>`
+          : `<small class="sub">Paused in Settings</small>`;
         return `<div style="margin-top:12px">
           <div class="hd" style="margin-bottom:6px">
             <h4 style="margin:0">${escHtml(d.key)}</h4>
             <span class="badge ${sigOn ? 'up' : 'mid'}">${sigOn ? 'SIGNALS ACTIVE' : 'WATCH ONLY'}</span>
-            <small class="${tone(d.paperPts)}">Paper pts: <b>${sgn(d.paperPts || 0)}</b></small>
+            ${headerStat}
           </div>
-          <table>
-            <tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th><th>Exit / PnL</th><th>Upstox</th></tr>
-            ${d.signals.length ? d.signals.map(s => {
-              const ex = s.exitReason
-                ? `<span class="${s.pts >= 0 ? 'upt' : 'dnt'}">${escHtml(s.exitReason)} ${s.exitTime ? escHtml(s.exitTime) + ' ' : ''}@ ${s.exitPrice} (${sgn(s.pts)})</span>`
-                : '<span class="sub">OPEN</span>';
-              return `<tr><td>${s.time}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}"><b>${s.side}</b></td><td>${s.ref}</td><td>${s.sl}</td><td>${s.tp1}</td><td>${s.setup}</td><td>${ex}</td><td><button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="sendUpstoxSignalOrder('${escHtml(d.key)}', '${escHtml(s.side)}', ${Number(s.ref) || 0}, this)">Check / Send</button></td></tr>`;
-            }).join('') : `<tr><td colspan="8" class="sub">${sigOn ? 'No recent signals.' : `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).`}</td></tr>`}
-          </table>
+          <div style="overflow-x:auto">
+            <table>
+              <tr><th>Time</th><th>Side</th><th>Ref</th><th>SL</th><th>TP1</th><th>Setup</th><th>Exit / PnL</th><th>Upstox</th></tr>
+              ${(d.signals || []).length ? d.signals.map(s => {
+                let ex = '<span class="sub">OPEN</span>';
+                if (s.exitReason) {
+                  const ptsNum = s.pts != null ? Number(s.pts) : null;
+                  const ptsCls = ptsNum == null ? 'sub' : ptsNum >= 0 ? 'upt' : 'dnt';
+                  const ptsTxt = ptsNum != null ? ` (${sgn(ptsNum)})` : '';
+                  const xpTxt = s.exitPrice != null ? ` @ ${fmt(s.exitPrice)}` : '';
+                  ex = `<span class="${ptsCls}">${escHtml(s.exitReason)}${s.exitTime ? ' ' + escHtml(s.exitTime) : ''}${escHtml(xpTxt)}${escHtml(ptsTxt)}</span>`;
+                } else if (d.price != null && s.ref != null) {
+                  const openPts = Math.round(/PE/.test(s.side) ? (Number(d.price) - Number(s.ref)) : (Number(s.ref) - Number(d.price)));
+                  ex = `<span class="${openPts >= 0 ? 'upt' : 'dnt'}">OPEN (${sgn(openPts)} pts live)</span>`;
+                }
+                return `<tr><td>${escHtml(s.time)}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}"><b>${escHtml(s.side)}</b></td><td>${fmt(s.ref)}</td><td>${fmt(s.sl)}</td><td>${fmt(s.tp1)}</td><td>${escHtml(s.setup || 'OB/FVG')}</td><td>${ex}</td><td><button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="sendUpstoxSignalOrder('${escHtml(d.key)}', '${escHtml(s.side)}', ${Number(s.ref) || 0}, this)">Check / Send</button></td></tr>`;
+              }).join('') : `<tr><td colspan="8" class="sub">${sigOn ? 'No recent signals.' : `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).`}</td></tr>`}
+            </table>
+          </div>
         </div>`;
       }).join('')}
     </div>`;
@@ -1827,11 +1865,22 @@ async function loadLive(force = false) {
   } catch (e) {
     const msg = e.message || 'Could not load market data.';
     const noticeEl = document.getElementById('live-notice');
+    const sigNoticeEl = document.getElementById('signals-notice');
+    const sigBodyEl = document.getElementById('signals-body');
     if (hasLiveData && noticeEl) {
       noticeEl.className = 'dnt';
       noticeEl.textContent = `Refresh failed (${msg}) — showing last received Upstox data.`;
+      if (sigNoticeEl) {
+        sigNoticeEl.className = 'dnt';
+        sigNoticeEl.textContent = `Refresh failed (${msg}) — showing last received signals.`;
+      }
     } else {
       document.getElementById('live-grid').innerHTML = `<p class="dnt">${escHtml(msg)}</p>`;
+      if (sigNoticeEl) {
+        sigNoticeEl.className = 'dnt';
+        sigNoticeEl.textContent = `Could not load signals (${msg}).`;
+      }
+      if (sigBodyEl) sigBodyEl.innerHTML = `<div class="card"><p class="dnt">${escHtml(msg)}</p></div>`;
     }
   } finally {
     liveInFlight = false;
@@ -2705,11 +2754,15 @@ function renderOrderLogPreview(log) {
 function renderUpstoxOrderPanel(data) {
   const logsEl = document.getElementById('upx-ord-logs');
   const bookEl = document.getElementById('upx-ord-book');
-  const cfg = data?.appConfig || {};
+  const pvEl = document.getElementById('upx-ord-preview');
   const logs = data?.state?.logs || [];
   const ob = data?.orderBook;
 
-  if (logs.length) renderOrderLogPreview(logs[0]);
+  if (logs.length) {
+    renderOrderLogPreview(logs[0]);
+  } else if (pvEl) {
+    pvEl.innerHTML = '';
+  }
 
   if (logsEl) {
     if (!logs.length) {
@@ -2754,14 +2807,28 @@ function renderUpstoxOrderPanel(data) {
   }
 }
 
+let upstoxOrderFormHydrated = false;
 async function loadUpstoxOrders() {
   try {
     const r = await fetch('/api/upstox/orders', { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
-    if (data.appConfig?.upstoxOrderMode && document.getElementById('upx-ord-mode')) {
-      document.getElementById('upx-ord-mode').value = data.appConfig.upstoxOrderMode;
-      syncOrderModeBadge();
+    const cfg = data.appConfig || {};
+    if (!upstoxOrderFormHydrated) {
+      if (cfg.upstoxOrderMode && document.getElementById('upx-ord-mode')) {
+        document.getElementById('upx-ord-mode').value = cfg.upstoxOrderMode;
+        syncOrderModeBadge();
+      }
+      if (cfg.upstoxOrderProduct && document.getElementById('upx-ord-product')) {
+        document.getElementById('upx-ord-product').value = cfg.upstoxOrderProduct;
+      }
+      if (cfg.upstoxOrderLots != null && document.getElementById('upx-ord-lots')) {
+        document.getElementById('upx-ord-lots').value = cfg.upstoxOrderLots;
+      }
+      if ((cfg.instrument === 'NIFTY' || cfg.instrument === 'SENSEX') && document.getElementById('upx-ord-index')) {
+        document.getElementById('upx-ord-index').value = cfg.instrument;
+      }
+      upstoxOrderFormHydrated = true;
     }
     if (data.upstoxDaily) syncQuickUpstoxBar(data.upstoxDaily);
     renderUpstoxOrderPanel(data);
@@ -2777,6 +2844,9 @@ async function sendUpstoxSignalOrder(index, side, spotPrice, btn) {
   const msgEl = document.getElementById('upx-ord-msg');
   if (btn) btn.disabled = true;
   if (msgEl) { msgEl.style.display = 'block'; msgEl.className = 'sub'; msgEl.textContent = `Sending ${index} ${side} (${mode}) to Upstox…`; }
+  if (spotPrice != null) {
+    document.getElementById('signals-upx-card')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
 
   try {
     const r = await fetch('/api/upstox/order-signal', {
