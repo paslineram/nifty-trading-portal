@@ -588,7 +588,7 @@ app.get('/api/journal', async (req, res) => {
                     lookbackDays: 14,
                     lots: 1,
                     niftyLotSize: 25,
-                    sensexLotSize: 60,
+                    sensexLotSize: 20,
                     obMaxAge: appConfig.obMaxAge,
                     maxTradesPerDay: appConfig.maxTrades,
                     useTrendlineExit: true
@@ -631,7 +631,7 @@ app.post('/api/journal', (req, res) => {
 
     const side = String(body.side || 'SELL PE').trim().toUpperCase();
     const lots = Math.max(1, Number(body.lots) || 1);
-    const defaultLot = /SENSEX/.test(symbol) ? 60 : 25;
+    const defaultLot = /SENSEX/.test(symbol) ? 20 : 25;
     const lotSize = Math.max(1, Number(body.lotSize) || defaultLot);
     const qty = Math.max(1, Number(body.qty) || (lots * lotSize));
     const exitPrice = (body.exitPrice !== undefined && body.exitPrice !== '' && body.exitPrice !== null)
@@ -717,7 +717,7 @@ app.post('/api/backtest', async (req, res) => {
             lookbackDays: body.lookbackDays,
             lots: body.lots ?? 1,
             niftyLotSize: body.niftyLotSize ?? 25,
-            sensexLotSize: body.sensexLotSize ?? 60,
+            sensexLotSize: body.sensexLotSize ?? 20,
             obMaxAge: body.obMaxAge ?? appConfig.obMaxAge,
             rrRatio: body.rrRatio,
             maxTradesPerDay: body.maxTradesPerDay ?? appConfig.maxTrades,

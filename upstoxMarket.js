@@ -6,7 +6,7 @@ const UPSTOX_V3 = 'https://api.upstox.com/v3';
 
 const INSTRUMENTS = [
     { key: 'NIFTY', upstoxKey: 'NSE_INDEX|Nifty 50', step: 50, flatLimit: 12, lotQty: 25 },
-    { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', step: 100, flatLimit: 37, lotQty: 60 }
+    { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', step: 100, flatLimit: 37, lotQty: 20 }
 ];
 const VIX_KEY = 'NSE_INDEX|India VIX';
 
@@ -578,22 +578,26 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         }
         atr /= 14;
 
-        // Check active position SL / TP1, then trendline break exit on candle close
+        const stUp = fullSt[i]?.up;
+
+        // Check active position SL / TP1, then protected trendline break exit on candle close
         if (pos) {
             if (pos.side === 'SELL PE') {
+                const tlProtected = (c.c - pos.ref) >= 0.4 * pos.risk || stUp === false;
                 if (c.l <= pos.sl) {
                     closePos(i, pos.sl, 'SL', c.ts);
                 } else if (c.h >= pos.tp1) {
                     closePos(i, pos.tp1, 'TP1', c.ts);
-                } else if (justBrokeUp) {
+                } else if (justBrokeUp && tlProtected) {
                     closePos(i, c.c, 'TL BREAK', c.ts);
                 }
             } else {
+                const tlProtected = (pos.ref - c.c) >= 0.4 * pos.risk || stUp === true;
                 if (c.h >= pos.sl) {
                     closePos(i, pos.sl, 'SL', c.ts);
                 } else if (c.l <= pos.tp1) {
                     closePos(i, pos.tp1, 'TP1', c.ts);
-                } else if (justBrokeDown) {
+                } else if (justBrokeDown && tlProtected) {
                     closePos(i, c.c, 'TL BREAK', c.ts);
                 }
             }
@@ -616,14 +620,13 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         }
 
         const lv = lvByDay[c.ymd];
-        const stUp = fullSt[i]?.up;
-        const inWindow = hm >= '09:30' && hm <= '14:45';
+        const inWindow = hm >= '09:30' && hm <= '14:15';
         const hmaCur = fullHma[i];
         const hmaPrev = fullHma[i - 1];
         const hmaUp = hmaCur != null && hmaPrev != null && hmaCur > hmaPrev;
         const hmaDn = hmaCur != null && hmaPrev != null && hmaCur < hmaPrev;
-        const bullHma = hmaCur == null || (c.c >= hmaCur && hmaUp);
-        const bearHma = hmaCur == null || (c.c <= hmaCur && hmaDn);
+        const bullHma = hmaCur == null || hmaUp;
+        const bearHma = hmaCur == null || hmaDn;
         const resRoom = !lv || lv.res.filter(r => r > c.c).every(r => (r - c.c) > 0.8 * atr);
         const supRoom = !lv || lv.sup.filter(s => s < c.c).every(s => (c.c - s) > 0.8 * atr);
 
@@ -644,7 +647,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rr);
                     const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup: 'OB/FVG' };
-                    pos = { side: 'SELL PE', ref, sl, tp1, signalRef: sigRef };
+                    pos = { side: 'SELL PE', ref, sl, tp1, risk, signalRef: sigRef };
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'PE' });
                     bullOB = null;
@@ -658,7 +661,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rr);
                     const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup: 'OB/FVG' };
-                    pos = { side: 'SELL CE', ref, sl, tp1, signalRef: sigRef };
+                    pos = { side: 'SELL CE', ref, sl, tp1, risk, signalRef: sigRef };
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'CE' });
                     bearOB = null;
@@ -1210,7 +1213,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const peReasons = [];
     if (spotPrice < cprBot) peReasons.push('price on the wrong side of the CPR');
     if (supertrend !== 'UP') peReasons.push('Supertrend points the other way');
-    if (hmaLast != null && spotPrice < hmaLast) peReasons.push('price on the wrong side of the HMA');
+    if (hmaSlope !== 'UP') peReasons.push('HMA(21) slope points the other way');
     if (nearRes) peReasons.push('too close to resistance');
     if (hourly.dir === 'BEAR') peReasons.push('1-hour trend is against it');
     if (!peReasons.length) peReasons.push('waiting for fresh bullish OB/FVG retest');
@@ -1218,7 +1221,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const ceReasons = [];
     if (spotPrice > cprTop) ceReasons.push('price on the wrong side of the CPR');
     if (supertrend !== 'DOWN') ceReasons.push('Supertrend points the other way');
-    if (hmaLast != null && spotPrice > hmaLast && hmaSlope === 'UP') ceReasons.push('price on the wrong side of the HMA');
+    if (hmaSlope !== 'DOWN') ceReasons.push('HMA(21) slope points the other way');
     if (nearSup) ceReasons.push('too close to support/resistance');
     if (hourly.dir === 'BULL') ceReasons.push('1-hour trend is against it');
     if (!ceReasons.length) ceReasons.push('waiting for fresh bearish OB/FVG retest');
@@ -1551,7 +1554,7 @@ async function fetchCandles15mRange(upstoxKey, todayYmd, totalDays) {
 
 function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
     const { obMaxAge, rrRatio, maxTradesPerDay, useTrendlineExit } = opts;
-    const qty = inst.key === 'NIFTY' ? (opts.niftyQty || 25) : (opts.sensexQty || 60);
+    const qty = inst.key === 'NIFTY' ? (opts.niftyQty || 25) : (opts.sensexQty || 20);
     if (!candles15m.length || daily.length < 2) return [];
 
     const fullCloses = candles15m.map(c => c.c);
@@ -1697,15 +1700,19 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
         }
         atr /= 14;
 
+        const stUp = fullSt[i]?.up;
+
         if (pos) {
             if (pos.side === 'SELL PE') {
+                const tlProtected = (c.c - pos.ref) >= 0.4 * pos.risk || stUp === false;
                 if (c.l <= pos.sl) closePos(pos.sl, 'SL', c.ts);
                 else if (c.h >= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
-                else if (useTrendlineExit && justBrokeUp) closePos(c.c, 'TL BREAK', c.ts);
+                else if (useTrendlineExit && justBrokeUp && tlProtected) closePos(c.c, 'TL BREAK', c.ts);
             } else {
+                const tlProtected = (pos.ref - c.c) >= 0.4 * pos.risk || stUp === true;
                 if (c.h >= pos.sl) closePos(pos.sl, 'SL', c.ts);
                 else if (c.l <= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
-                else if (useTrendlineExit && justBrokeDown) closePos(c.c, 'TL BREAK', c.ts);
+                else if (useTrendlineExit && justBrokeDown && tlProtected) closePos(c.c, 'TL BREAK', c.ts);
             }
         }
 
@@ -1725,13 +1732,12 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
         }
 
         const lv = lvByDay[c.ymd];
-        const stUp = fullSt[i]?.up;
-        const inWindow = hm >= '09:30' && hm <= '14:45';
+        const inWindow = hm >= '09:30' && hm <= '14:15';
         const hmaCur = fullHma[i], hmaPrev = fullHma[i - 1];
         const hmaUp = hmaCur != null && hmaPrev != null && hmaCur > hmaPrev;
         const hmaDn = hmaCur != null && hmaPrev != null && hmaCur < hmaPrev;
-        const bullHma = hmaCur == null || (c.c >= hmaCur && hmaUp);
-        const bearHma = hmaCur == null || (c.c <= hmaCur && hmaDn);
+        const bullHma = hmaCur == null || hmaUp;
+        const bearHma = hmaCur == null || hmaDn;
         const resRoom = !lv || lv.res.filter(r => r > c.c).every(r => (r - c.c) > 0.8 * atr);
         const supRoom = !lv || lv.sup.filter(s => s < c.c).every(s => (c.c - s) > 0.8 * atr);
         const bullBias = stUp === true && (!lv || c.c >= lv.bot) && bullHma && resRoom;
@@ -1751,7 +1757,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rrRatio);
                     const setup = longOB && longFVG ? 'OB+FVG' : longOB ? 'OB' : 'FVG';
-                    pos = { side: 'SELL PE', ref, sl, tp1, entryTs: c.ts, setup };
+                    pos = { side: 'SELL PE', ref, sl, tp1, risk, entryTs: c.ts, setup };
                     tradesToday += 1;
                     bullOB = null;
                     bullFVG = null;
@@ -1764,7 +1770,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rrRatio);
                     const setup = shortOB && shortFVG ? 'OB+FVG' : shortOB ? 'OB' : 'FVG';
-                    pos = { side: 'SELL CE', ref, sl, tp1, entryTs: c.ts, setup };
+                    pos = { side: 'SELL CE', ref, sl, tp1, risk, entryTs: c.ts, setup };
                     tradesToday += 1;
                     bearOB = null;
                     bearFVG = null;
@@ -1818,7 +1824,7 @@ async function runBacktestSimulation(params = {}) {
     const lookbackDays = Math.max(7, Math.min(120, Number(params.lookbackDays) || 30));
     const lots = Math.max(1, Math.min(100, Number(params.lots) || 1));
     const niftyLotSize = Math.max(1, Math.min(5000, Number(params.niftyLotSize) || 25));
-    const sensexLotSize = Math.max(1, Math.min(5000, Number(params.sensexLotSize) || 60));
+    const sensexLotSize = Math.max(1, Math.min(5000, Number(params.sensexLotSize) || 20));
     const niftyQty = lots * niftyLotSize;
     const sensexQty = lots * sensexLotSize;
     const obMaxAge = Math.max(5, Math.min(80, Number(params.obMaxAge) || 25));

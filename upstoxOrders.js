@@ -27,7 +27,7 @@ const ORDERS_FILE = path.join(DATA_DIR, 'upstox_orders.json');
 
 const INDEX_META = {
     NIFTY: { key: 'NIFTY', upstoxKey: 'NSE_INDEX|Nifty 50', defaultLot: 25 },
-    SENSEX: { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', defaultLot: 60 }
+    SENSEX: { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', defaultLot: 20 }
 };
 
 function defaultOrderState() {
@@ -267,8 +267,8 @@ async function executeUpstoxOrderSignal(params, config = {}) {
                 product,
                 orderType,
                 lots,
-                lotSize: indexKey === 'SENSEX' ? 60 : 25,
-                qty: lots * (indexKey === 'SENSEX' ? 60 : 25),
+                lotSize: indexKey === 'SENSEX' ? 20 : 25,
+                qty: lots * (indexKey === 'SENSEX' ? 20 : 25),
                 mode,
                 status: 'FAILED',
                 message: 'Upstox Access Token not configured in Settings.'
@@ -297,8 +297,8 @@ async function executeUpstoxOrderSignal(params, config = {}) {
                 product,
                 orderType,
                 lots,
-                lotSize: indexKey === 'SENSEX' ? 60 : 25,
-                qty: lots * (indexKey === 'SENSEX' ? 60 : 25),
+                lotSize: indexKey === 'SENSEX' ? 20 : 25,
+                qty: lots * (indexKey === 'SENSEX' ? 20 : 25),
                 mode,
                 status: 'FAILED',
                 message: resolved.error

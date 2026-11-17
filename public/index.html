@@ -220,9 +220,9 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
           <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--mut);border-color:var(--mut)" onclick="clearUpstoxOrderHistory()">Clear Dispatch Log</button>
         </div>
       </div>
-      <p class="sub" style="margin-top:4px">Test sending an order signal to Upstox: resolves the nearest option contract (<code>NIFTY=25</code>, <code>SENSEX=60</code>), validates live margin via <code>/v2/charges/margin</code> in <b>Dry Run</b>, or places an order in <b>Sandbox</b> / <b>Live HFT</b>.</p>
+      <p class="sub" style="margin-top:4px">Test sending an order signal to Upstox: resolves the nearest option contract (<code>NIFTY=25</code>, <code>SENSEX=20</code>), validates live margin via <code>/v2/charges/margin</code> in <b>Dry Run</b>, or places an order in <b>Sandbox</b> / <b>Live HFT</b>.</p>
       <form class="f" style="margin:10px 0 4px" onsubmit="sendCustomUpstoxOrder(event)">
-        <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Lot 25)</option><option value="SENSEX">SENSEX (Lot 60)</option></select></label>
+        <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Lot 25)</option><option value="SENSEX">SENSEX (Lot 20)</option></select></label>
         <label>Signal Side <select id="upx-ord-side"><option value="SELL PE">SELL PE (Bullish)</option><option value="SELL CE">SELL CE (Bearish)</option><option value="BUY CE">BUY CE</option><option value="BUY PE">BUY PE</option></select></label>
         <label>Execution Mode <select id="upx-ord-mode" onchange="syncOrderModeBadge()"><option value="DRY_RUN">DRY_RUN (Contract + Margin Check)</option><option value="SANDBOX">SANDBOX (api-sandbox.upstox.com)</option><option value="LIVE">LIVE HFT (api-hft.upstox.com)</option></select></label>
         <label>Product <select id="upx-ord-product"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
@@ -250,7 +250,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Period <select id="bt-days"><option value="15">Last 15 Days</option><option value="30" selected>Last 30 Days</option><option value="60">Last 60 Days</option><option value="90">Last 90 Days</option></select></label>
         <label>Lots (1 = Single Lot) <input type="number" id="bt-lots" value="1" min="1" max="100"></label>
         <label>NIFTY Lot Size <input type="number" id="bt-nifty-lot" value="25" min="1"></label>
-        <label>SENSEX Lot Size <input type="number" id="bt-sensex-lot" value="60" min="1"></label>
+        <label>SENSEX Lot Size <input type="number" id="bt-sensex-lot" value="20" min="1"></label>
         <label>OB Max Age <input type="number" id="bt-maxage" value="25" min="5"></label>
         <label>Risk : Reward <select id="bt-rr"><option value="1.0" selected>1 : 1.0</option><option value="1.5">1 : 1.5</option><option value="2.0">1 : 2.0</option></select></label>
         <label>Max Trades / Day <input type="number" id="bt-maxtrades" value="3" min="1" max="10"></label>
@@ -362,7 +362,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 
     <div class="card">
       <div class="hd" style="justify-content:space-between;margin-bottom:6px">
-        <h3 style="margin:0">Strategy Signal Journal <small style="font-weight:400">(14-Day Single Lot: NIFTY 25 / SENSEX 60)</small></h3>
+        <h3 style="margin:0">Strategy Signal Journal <small style="font-weight:400">(14-Day Single Lot: NIFTY 25 / SENSEX 20)</small></h3>
         <span id="jrn-strat-badge" class="badge mid"></span>
       </div>
       <div id="jrn-strategy-body"><p class="sub">Loading recent strategy trades…</p></div>
@@ -1972,7 +1972,7 @@ function syncJournalLotDefault() {
   const sym = (document.getElementById('jrn-symbol')?.value || '').toUpperCase();
   const lotEl = document.getElementById('jrn-lotsize');
   if (!lotEl) return;
-  if (sym.includes('SENSEX')) lotEl.value = 60;
+  if (sym.includes('SENSEX')) lotEl.value = 20;
   else if (sym.includes('NIFTY')) lotEl.value = 25;
 }
 
@@ -2201,7 +2201,7 @@ async function copyStrategyToJournal(idx) {
   const t = (journalData.strategyTrades || [])[idx];
   if (!t) return;
   const msgEl = document.getElementById('jrn-form-msg');
-  const lotSize = t.index === 'SENSEX' ? 60 : 25;
+  const lotSize = t.index === 'SENSEX' ? 20 : 25;
   const payload = {
     symbol: t.index,
     side: t.side,
