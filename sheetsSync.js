@@ -129,13 +129,20 @@ function buildSheetsDatasets({
     };
 }
 
+function sanitizeExcelCell(val) {
+    if (typeof val !== 'string' || val === '') return val;
+    if (/^[=+\-@\t\r]/.test(val)) return `'${val}`;
+    return val;
+}
+
 function buildExcelWorkbookBuffer(datasets) {
     const wb = XLSX.utils.book_new();
     for (const [sheetName, rows] of Object.entries(datasets)) {
-        const ws = XLSX.utils.aoa_to_sheet(rows);
-        const colCount = (rows[0] || []).length;
+        const safeRows = rows.map(row => row.map(sanitizeExcelCell));
+        const ws = XLSX.utils.aoa_to_sheet(safeRows);
+        const colCount = (safeRows[0] || []).length;
         ws['!cols'] = Array.from({ length: colCount }, (_, ci) => {
-            const maxLen = rows.slice(0, 60).reduce((mx, r) => Math.max(mx, String(r[ci] ?? '').length), 10);
+            const maxLen = safeRows.slice(0, 60).reduce((mx, r) => Math.max(mx, String(r[ci] ?? '').length), 10);
             return { wch: Math.min(44, maxLen + 3) };
         });
         XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));

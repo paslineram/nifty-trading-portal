@@ -5,7 +5,7 @@ const UPSTOX_V2 = 'https://api.upstox.com/v2';
 const UPSTOX_V3 = 'https://api.upstox.com/v3';
 
 const INSTRUMENTS = [
-    { key: 'NIFTY', upstoxKey: 'NSE_INDEX|Nifty 50', step: 50, flatLimit: 12, lotQty: 25 },
+    { key: 'NIFTY', upstoxKey: 'NSE_INDEX|Nifty 50', step: 50, flatLimit: 12, lotQty: 65 },
     { key: 'SENSEX', upstoxKey: 'BSE_INDEX|SENSEX', step: 100, flatLimit: 37, lotQty: 20 }
 ];
 const VIX_KEY = 'NSE_INDEX|India VIX';
@@ -1521,7 +1521,7 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
                 new Promise(resolve => setTimeout(() => {
                     xrayTimedOut = true;
                     resolve(fallbackXray);
-                }, 4500))
+                }, 2500))
             ]);
     } else {
         xrayTask = Promise.resolve(fallbackXray);
@@ -1625,7 +1625,7 @@ async function fetchCandles15mRange(upstoxKey, todayYmd, totalDays) {
 
 function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
     const { obMaxAge, rrRatio, maxTradesPerDay, useTrendlineExit } = opts;
-    const qty = inst.key === 'NIFTY' ? (opts.niftyQty || 25) : (opts.sensexQty || 20);
+    const qty = inst.key === 'NIFTY' ? (opts.niftyQty || 65) : (opts.sensexQty || 20);
     if (!candles15m.length || daily.length < 2) return [];
 
     const fullCloses = candles15m.map(c => c.c);
@@ -1894,7 +1894,7 @@ async function runBacktestSimulation(params = {}) {
     const instrument = ['NIFTY', 'SENSEX', 'BOTH'].includes(rawInst) ? rawInst : 'BOTH';
     const lookbackDays = Math.max(7, Math.min(120, Number(params.lookbackDays) || 30));
     const lots = Math.max(1, Math.min(100, Number(params.lots) || 1));
-    const niftyLotSize = Math.max(1, Math.min(5000, Number(params.niftyLotSize) || 25));
+    const niftyLotSize = Math.max(1, Math.min(5000, Number(params.niftyLotSize) || 65));
     const sensexLotSize = Math.max(1, Math.min(5000, Number(params.sensexLotSize) || 20));
     const niftyQty = lots * niftyLotSize;
     const sensexQty = lots * sensexLotSize;
@@ -2053,7 +2053,7 @@ async function fetchUpstoxBrokerJournal(token) {
 
         const brokerTrades = rawTrades.map(t => ({
             id: t.trade_id || t.order_id,
-            time: t.exchange_timestamp || t.order_timestamp || '',
+            time: t.order_timestamp || t.exchange_timestamp || '',
             symbol: t.trading_symbol || t.instrument_token || '-',
             exchange: t.exchange || '-',
             side: t.transaction_type || '-',
@@ -2062,17 +2062,27 @@ async function fetchUpstoxBrokerJournal(token) {
             product: t.product || '-'
         }));
 
-        const positions = rawPos.map(p => ({
-            symbol: p.trading_symbol || p.instrument_token || '-',
-            product: p.product || '-',
-            qty: Number(p.quantity || 0),
-            buyQty: Number(p.buy_quantity ?? p.day_buy_quantity ?? 0),
-            sellQty: Number(p.sell_quantity ?? p.day_sell_quantity ?? 0),
-            buyPrice: Number(p.buy_price || 0),
-            sellPrice: Number(p.sell_price || 0),
-            ltp: Number(p.last_price || 0),
-            pnl: r2(Number(p.pnl ?? ((Number(p.realised || 0)) + (Number(p.unrealised || 0)))))
-        }));
+        const positions = rawPos.map(p => {
+            const overnightQty = Number(p.overnight_quantity || 0);
+            const dayBuyQty = Number(p.day_buy_quantity ?? 0);
+            const daySellQty = Number(p.day_sell_quantity ?? 0);
+            const overnightBuyQty = Number(p.overnight_buy_quantity ?? (overnightQty > 0 ? overnightQty : 0));
+            const overnightSellQty = Number(p.overnight_sell_quantity ?? (overnightQty < 0 ? Math.abs(overnightQty) : 0));
+            const buyQty = p.buy_quantity != null ? Number(p.buy_quantity) : (overnightBuyQty + dayBuyQty);
+            const sellQty = p.sell_quantity != null ? Number(p.sell_quantity) : (overnightSellQty + daySellQty);
+            return {
+                symbol: p.trading_symbol || p.instrument_token || '-',
+                product: p.product || '-',
+                qty: Number(p.quantity || 0),
+                overnightQty,
+                buyQty,
+                sellQty,
+                buyPrice: Number(p.buy_price || 0),
+                sellPrice: Number(p.sell_price || 0),
+                ltp: Number(p.last_price || 0),
+                pnl: r2(Number(p.pnl ?? ((Number(p.realised || 0)) + (Number(p.unrealised || 0)))))
+            };
+        });
 
         const dayPnl = r2(positions.reduce((s, p) => s + (p.pnl || 0), 0));
         return { available: true, reason: null, brokerTrades, positions, dayPnl };
@@ -2142,6 +2152,51 @@ function computeSessionVWAP(candles) {
             return r2(cumPV / cumV);
         }
         return cumV > 0 ? r2(cumPV / cumV) : null;
+    });
+}
+
+function computeEMASeries(values, period = 20) {
+    const out = new Array(values.length).fill(null);
+    if (!values.length) return out;
+    const k = 2 / (period + 1);
+    let ema = null;
+    let seedSum = 0;
+    let seedCount = 0;
+    for (let i = 0; i < values.length; i++) {
+        const v = Number(values[i]);
+        if (!Number.isFinite(v)) continue;
+        if (ema === null) {
+            seedSum += v;
+            seedCount += 1;
+            if (seedCount === period) {
+                ema = seedSum / period;
+                out[i] = r2(ema);
+            } else if (i === values.length - 1 && seedCount > 0) {
+                out[i] = r2(seedSum / seedCount);
+            }
+        } else {
+            ema = v * k + ema * (1 - k);
+            out[i] = r2(ema);
+        }
+    }
+    return out;
+}
+
+function computeVolumeStats(candles, lookback = 20) {
+    return candles.map((c, i) => {
+        const v = Number(c.v || 0);
+        if (!v || i < 5) return { volRatio: null, volSpike: false };
+        const start = Math.max(0, i - lookback);
+        let sum = 0;
+        let cnt = 0;
+        for (let j = start; j < i; j++) {
+            const pv = Number(candles[j].v || 0);
+            if (pv > 0) { sum += pv; cnt += 1; }
+        }
+        if (!cnt || sum <= 0) return { volRatio: null, volSpike: false };
+        const avg = sum / cnt;
+        const ratio = r2(v / avg);
+        return { volRatio: ratio, volSpike: ratio >= 1.8 };
     });
 }
 
@@ -2596,10 +2651,13 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     const visStartIdx = Math.max(0, candlesAll.findIndex(c => c.ymd >= firstYmd));
 
     const vwapAll = computeSessionVWAP(candlesAll);
+    const ema20All = computeEMASeries(candlesAll.map(c => c.c), 20);
+    const volStatsAll = computeVolumeStats(candlesAll, 20);
     const analysis = detectStockOrderBlocksAndLiquidity(candlesAll, visStartIdx, dailyCandles, tf);
 
     const visibleCandles = candlesAll.slice(visStartIdx).map((c, idx) => {
         const gIdx = visStartIdx + idx;
+        const vs = volStatsAll[gIdx] || { volRatio: null, volSpike: false };
         return {
             ts: c.ts,
             ymd: c.ymd,
@@ -2610,7 +2668,10 @@ async function getStockChartAnalysis(symbol, opts = {}) {
             l: r2(c.l),
             c: r2(c.c),
             v: Math.round(c.v || 0),
-            vwap: vwapAll[gIdx]
+            vwap: vwapAll[gIdx],
+            ema20: ema20All[gIdx],
+            volRatio: vs.volRatio,
+            volSpike: vs.volSpike
         };
     });
 
@@ -2710,9 +2771,46 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     if (primaryOb) primaryOb.isTradeZone = true;
     const cleanChartOBs = primaryOb ? [primaryOb] : [];
 
+    const lastEma20 = lastBar.ema20;
+    const aboveEma20 = lastEma20 != null ? lastPrice >= lastEma20 : null;
+    const pdh = prevDaily ? r2(prevDaily.h) : null;
+    const pdl = prevDaily ? r2(prevDaily.l) : null;
+
+    const todayBars = visibleCandles.filter(c => c.ymd === latestYmd);
+    const orbBarsNeeded = tf === '5m' ? 3 : 1;
+    const orbBars = todayBars.slice(0, orbBarsNeeded);
+    const orbHigh = orbBars.length ? r2(Math.max(...orbBars.map(b => b.h))) : null;
+    const orbLow = orbBars.length ? r2(Math.min(...orbBars.map(b => b.l))) : null;
+    const orbState = (orbHigh != null && orbLow != null)
+        ? (lastPrice > orbHigh ? 'Above ORB' : (lastPrice < orbLow ? 'Below ORB' : 'Inside ORB'))
+        : null;
+    const pdhState = (pdh != null && pdl != null)
+        ? (lastPrice > pdh ? 'Above PDH' : (lastPrice < pdl ? 'Below PDL' : 'Inside Prev Range'))
+        : null;
+    const recentBars = visibleCandles.slice(-4);
+    const recentVolSpike = recentBars.some(b => b.volSpike);
+    const latestVolRatio = lastBar.volRatio;
+
+    const desiredBull = tradePlan ? tradePlan.action === 'BUY' : (aboveVwap === true);
+    const checks = [
+        { label: 'Trend 15m/1h', ok: desiredBull ? (trend15m.dir === 'Up' && trend1h.dir !== 'Down') : (trend15m.dir === 'Down' && trend1h.dir !== 'Up') },
+        { label: 'VWAP', ok: desiredBull ? aboveVwap === true : aboveVwap === false },
+        { label: 'EMA 20', ok: desiredBull ? aboveEma20 === true : aboveEma20 === false },
+        { label: 'ORB 15m', ok: orbState ? (desiredBull ? orbState === 'Above ORB' : orbState === 'Below ORB') : false },
+        { label: 'OB / FVG', ok: Boolean(tradePlan && (tradePlan.status === 'FRESH' || tradePlan.hasFvg)) }
+    ];
+    const confScore = checks.filter(c => c.ok).length;
+    const confVerdict = tradePlan
+        ? (confScore >= 4 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Wait / Partial'))
+        : 'Wait for Setup';
+
     const strengthBias = tradePlan
         ? (tradePlan.action === 'BUY' ? 'Bullish Setup' : 'Bearish Setup')
         : (aboveVwap === true && trend15m.bull === true ? 'Bullish' : (aboveVwap === false && trend15m.bull === false ? 'Bearish' : 'Neutral'));
+
+    const cleanLiqLevels = (analysis.liquidity || [])
+        .filter(l => !/Prev day/i.test(l.label))
+        .slice(0, 4);
 
     const result = {
         symbol: matchedStock.symbol,
@@ -2729,6 +2827,27 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         dayCounts,
         orderBlocks: cleanChartOBs,
         tradePlan,
+        levels: {
+            pdh,
+            pdl,
+            orbHigh,
+            orbLow,
+            support: analysis.support,
+            resistance: analysis.resistance,
+            liquidity: cleanLiqLevels
+        },
+        confluence: {
+            ema20: lastEma20,
+            aboveEma20,
+            orbState,
+            pdhState,
+            recentVolSpike,
+            latestVolRatio,
+            score: confScore,
+            maxScore: checks.length,
+            verdict: confVerdict,
+            checks
+        },
         strength: {
             bias: strengthBias
         },

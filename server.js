@@ -1,9 +1,9 @@
 const express = require('express');
-const cors = require('cors');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, getStockChartAnalysis, scanNifty50OrderBlocks } = require('./upstoxMarket');
+const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, getStockChartAnalysis, scanNifty50OrderBlocks, isMarketOpenIST } = require('./upstoxMarket');
 const {
     loadTelegramState,
     verifyTelegramBot,
@@ -27,14 +27,77 @@ const {
 const app = express();
 const PORT = 3000;
 
-app.use(cors());
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'same-origin');
+    next();
+});
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.html')) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        }
+    }
+}));
+
+function getWritableDataDir(subName = 'nifty_portal_data') {
+    try {
+        const d = path.join(__dirname, 'data');
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        const testFile = path.join(d, '.test-write');
+        fs.writeFileSync(testFile, 'ok');
+        fs.unlinkSync(testFile);
+        return d;
+    } catch (_) {
+        const d = path.join(process.env.TMPDIR || '/tmp', subName);
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+        return d;
+    }
+}
+
+const CONFIG_DIR = getWritableDataDir('nifty_portal_data');
+
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 10;
+const loginAttempts = new Map();
+
+function safeEqualStr(a, b) {
+    const ha = crypto.createHash('sha256').update(String(a ?? '')).digest();
+    const hb = crypto.createHash('sha256').update(String(b ?? '')).digest();
+    return crypto.timingSafeEqual(ha, hb);
+}
+
+function getClientIp(req) {
+    return req.ip || req.socket?.remoteAddress || 'unknown';
+}
+
+function checkLoginRateLimit(ip) {
+    const now = Date.now();
+    const rec = loginAttempts.get(ip);
+    if (!rec || now > rec.resetAt) return { blocked: false };
+    if (rec.count >= LOGIN_MAX_ATTEMPTS) {
+        return { blocked: true, retryAfterSec: Math.max(1, Math.ceil((rec.resetAt - now) / 1000)) };
+    }
+    return { blocked: false };
+}
+
+function recordLoginFailure(ip) {
+    const now = Date.now();
+    const rec = loginAttempts.get(ip);
+    if (!rec || now > rec.resetAt) {
+        loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS });
+    } else {
+        rec.count += 1;
+    }
+}
 
 let appConfig = {
     upstoxToken: process.env.UPSTOX_ACCESS_TOKEN || '',
     instrument: 'BOTH',
-    lotSize: 25,
+    lotSize: 65,
     actionType: 'BOTH',
     maxTrades: 3,
     obMaxAge: 25,
@@ -63,22 +126,6 @@ function getUpstoxTradingDayIST(date = new Date()) {
     return shifted.toISOString().slice(0, 10);
 }
 
-function getWritableDataDir(subName = 'nifty_portal_data') {
-    try {
-        const d = path.join(__dirname, 'data');
-        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-        const testFile = path.join(d, '.test-write');
-        fs.writeFileSync(testFile, 'ok');
-        fs.unlinkSync(testFile);
-        return d;
-    } catch (_) {
-        const d = path.join(process.env.TMPDIR || '/tmp', subName);
-        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
-        return d;
-    }
-}
-
-const CONFIG_DIR = getWritableDataDir('nifty_portal_data');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'app_config.json');
 const TELEGRAM_CONFIG_FILE = path.join(CONFIG_DIR, 'telegram_config.json');
 const TELEGRAM_KEYS = ['telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
@@ -209,14 +256,31 @@ let strategyJournalCache = { ts: 0, instrument: '', data: null };
 // Live market snapshot is provided by ./upstoxMarket.js using Upstox v2/v3 APIs.
 
 app.post('/api/login', (req, res) => {
+    const ip = getClientIp(req);
+    const limit = checkLoginRateLimit(ip);
+    if (limit.blocked) {
+        res.setHeader('Retry-After', String(limit.retryAfterSec));
+        return res.status(429).json({
+            success: false,
+            message: `Too many failed login attempts. Try again in ${Math.ceil(limit.retryAfterSec / 60)} minute(s).`
+        });
+    }
     const { username, password } = req.body || {};
     const adminUser = (process.env.ADMIN_USER || 'admin').trim();
     const adminPass = (process.env.ADMIN_PASS || 'nifty2026').trim();
-    if (String(username || '').trim() === adminUser && String(password || '').trim() === adminPass) {
-        res.json({ success: true, token: 'mock-jwt-session-token-xyz' });
+    const userOk = safeEqualStr(String(username || '').trim(), adminUser);
+    const passOk = safeEqualStr(String(password || '').trim(), adminPass);
+    if (userOk && passOk) {
+        loginAttempts.delete(ip);
+        res.json({ success: true });
     } else {
+        recordLoginFailure(ip);
         res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
+});
+
+app.post('/api/logout', (req, res) => {
+    res.json({ success: true });
 });
 
 app.get('/api/market', async (req, res) => {
@@ -246,9 +310,12 @@ app.get('/api/market', async (req, res) => {
         } else if (data.source === 'upstox-live' && appConfig.upstoxToken && !upstoxState.verified) {
             await fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null);
         }
-        await Promise.all([
-            processSnapshotForTelegram(data, appConfig).catch(() => null),
-            processSnapshotForAutoOrder(data, appConfig).catch(() => null)
+        await Promise.race([
+            Promise.all([
+                processSnapshotForTelegram(data, appConfig).catch(() => null),
+                processSnapshotForAutoOrder(data, appConfig).catch(() => null)
+            ]),
+            new Promise(resolve => setTimeout(resolve, 3000))
         ]);
         const tgState = loadTelegramState();
         res.json({
@@ -479,7 +546,10 @@ app.post('/api/settings', async (req, res) => {
             } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor', 'upstoxAutoOrder'].includes(key)) {
                 appConfig[key] = body[key] === true || body[key] === 'true';
             } else if (['upstoxSandboxToken', 'upstoxToken', 'telegramBotToken'].includes(key)) {
-                const trimmed = String(body[key]).trim();
+                let trimmed = String(body[key]).trim();
+                if (key === 'upstoxToken' || key === 'upstoxSandboxToken') {
+                    trimmed = trimmed.replace(/^Bearer\s+/i, '').trim();
+                }
                 if (trimmed !== '') {
                     if (key === 'upstoxToken') upstoxTokenUpdated = true;
                     if (key === 'telegramBotToken') tgTokenUpdated = true;
@@ -536,8 +606,8 @@ app.post('/api/settings', async (req, res) => {
 
 app.post('/api/upstox/token', async (req, res) => {
     const body = req.body || {};
-    const tok = typeof body.upstoxToken === 'string' ? body.upstoxToken.trim() : '';
-    const sTok = typeof body.upstoxSandboxToken === 'string' ? body.upstoxSandboxToken.trim() : '';
+    const tok = typeof body.upstoxToken === 'string' ? body.upstoxToken.trim().replace(/^Bearer\s+/i, '').trim() : '';
+    const sTok = typeof body.upstoxSandboxToken === 'string' ? body.upstoxSandboxToken.trim().replace(/^Bearer\s+/i, '').trim() : '';
     if (!tok && !sTok) {
         return res.status(400).json({ success: false, message: 'Please paste a valid daily Upstox Access Token.' });
     }
@@ -591,7 +661,7 @@ app.get('/api/journal', async (req, res) => {
                     instrument: appConfig.instrument,
                     lookbackDays: 14,
                     lots: 1,
-                    niftyLotSize: 25,
+                    niftyLotSize: 65,
                     sensexLotSize: 20,
                     obMaxAge: appConfig.obMaxAge,
                     maxTradesPerDay: appConfig.maxTrades,
@@ -635,7 +705,7 @@ app.post('/api/journal', (req, res) => {
 
     const side = String(body.side || 'SELL PE').trim().toUpperCase();
     const lots = Math.max(1, Number(body.lots) || 1);
-    const defaultLot = /SENSEX/.test(symbol) ? 20 : 25;
+    const defaultLot = /SENSEX/.test(symbol) ? 20 : 65;
     const lotSize = Math.max(1, Number(body.lotSize) || defaultLot);
     const qty = Math.max(1, Number(body.qty) || (lots * lotSize));
     const exitPrice = (body.exitPrice !== undefined && body.exitPrice !== '' && body.exitPrice !== null)
@@ -721,7 +791,7 @@ app.post('/api/backtest', async (req, res) => {
             instrument: body.instrument || appConfig.instrument,
             lookbackDays: body.lookbackDays,
             lots: body.lots ?? 1,
-            niftyLotSize: body.niftyLotSize ?? 25,
+            niftyLotSize: body.niftyLotSize ?? 65,
             sensexLotSize: body.sensexLotSize ?? 20,
             obMaxAge: body.obMaxAge ?? appConfig.obMaxAge,
             rrRatio: body.rrRatio,
@@ -993,7 +1063,7 @@ async function collectPortalDatasets({ includeStrategy = true } = {}) {
             instrument: appConfig.instrument,
             lookbackDays: 14,
             lots: 1,
-            niftyLotSize: 25,
+            niftyLotSize: 65,
             sensexLotSize: 20,
             obMaxAge: appConfig.obMaxAge,
             maxTradesPerDay: appConfig.maxTrades,
@@ -1066,6 +1136,9 @@ if (require.main === module) {
         console.log(`Nifty Trading Portal running on port ${PORT}`);
         if (appConfig.upstoxToken) fetchUpstoxProfile(appConfig.upstoxToken).catch(() => null);
         if (appConfig.telegramBotToken) ensureTelegramVerified().catch(() => null);
+        setTimeout(() => {
+            getLiveMarketSnapshot(appConfig.upstoxToken, appConfig.instrument, false).catch(() => null);
+        }, 250);
         setTimeout(() => { runBackgroundSignalMonitor(); }, 3000);
         setInterval(() => { runBackgroundSignalMonitor(); }, 30000);
     });

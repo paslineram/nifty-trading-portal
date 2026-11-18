@@ -85,7 +85,7 @@ function fmtIstNow() {
 }
 
 function lotSizeFor(indexKey) {
-    return String(indexKey || '').toUpperCase().includes('SENSEX') ? 20 : 25;
+    return String(indexKey || '').toUpperCase().includes('SENSEX') ? 20 : 65;
 }
 
 function buildEntryKey(instKey, sig) {
@@ -380,7 +380,7 @@ async function sendTestTelegramAlert(config, activeSnapshot = null) {
         const text = [
             `✅ <b>Paslin Trading Portal — Telegram Connected</b>`,
             `Signal alerts are active for <b>${escapeHtml(config.instrument || 'BOTH')}</b>.`,
-            `<b>Lot Sizes:</b> NIFTY 25 · SENSEX 20`,
+            `<b>Lot Sizes:</b> NIFTY 65 · SENSEX 20`,
             `<b>Rules:</b> Entry = ${config.telegramNotifyEntries !== false ? 'ON' : 'OFF'} · Exit (TP1/SL/TL Break) = ${config.telegramNotifyExits !== false ? 'ON' : 'OFF'}`,
             activeList ? `\n<b>Current Market Snapshot:</b>\n${escapeHtml(activeList)}` : '',
             `\n<i>${escapeHtml(fmtIstNow())}</i>`

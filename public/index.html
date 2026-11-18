@@ -249,7 +249,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Instrument <select id="bt-inst"><option value="BOTH">BOTH (NIFTY &amp; SENSEX)</option><option value="NIFTY">NIFTY</option><option value="SENSEX">SENSEX</option></select></label>
         <label>Period <select id="bt-days"><option value="15">Last 15 Days</option><option value="30" selected>Last 30 Days</option><option value="60">Last 60 Days</option><option value="90">Last 90 Days</option></select></label>
         <label>Lots (1 = Single Lot) <input type="number" id="bt-lots" value="1" min="1" max="100"></label>
-        <label>NIFTY Lot Size <input type="number" id="bt-nifty-lot" value="25" min="1"></label>
+        <label>NIFTY Lot Size <input type="number" id="bt-nifty-lot" value="65" min="1"></label>
         <label>SENSEX Lot Size <input type="number" id="bt-sensex-lot" value="20" min="1"></label>
         <label>OB Max Age <input type="number" id="bt-maxage" value="25" min="5"></label>
         <label>Risk : Reward <select id="bt-rr"><option value="1.0" selected>1 : 1.0</option><option value="1.5">1 : 1.5</option><option value="2.0">1 : 2.0</option></select></label>
@@ -299,7 +299,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
     <div class="card" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
       <span id="jrn-status" class="sub">Loading Trade Journal &amp; Upstox broker feed…</span>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <a href="/api/export/excel" class="btn" style="padding:4px 10px;font-size:11px;background:var(--px);border-color:var(--px);text-decoration:none">Download Excel (.xlsx)</a>
+        <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--px);border-color:var(--px)" onclick="downloadExcelWorkbook(this)">Download Excel (.xlsx)</button>
         <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="loadJournal(true)">Refresh Journal</button>
       </div>
     </div>
@@ -319,7 +319,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <datalist id="jrn-symbols"><option value="NIFTY"><option value="SENSEX"><option value="NIFTY PE"><option value="NIFTY CE"><option value="SENSEX PE"><option value="SENSEX CE"></datalist>
         <label>Side <select id="jrn-side"><option value="SELL PE">SELL PE</option><option value="SELL CE">SELL CE</option><option value="BUY">BUY</option><option value="SELL">SELL</option></select></label>
         <label>Lots <input type="number" id="jrn-lots" value="1" min="1"></label>
-        <label>Lot Size <input type="number" id="jrn-lotsize" value="25" min="1"></label>
+        <label>Lot Size <input type="number" id="jrn-lotsize" value="65" min="1"></label>
         <label>Entry Price <input type="number" step="0.05" id="jrn-entry" placeholder="e.g. 25110" required></label>
         <label>Exit Price <input type="number" step="0.05" id="jrn-exit" placeholder="Blank = Open"></label>
         <label>Exit Reason <select id="jrn-reason"><option value="MANUAL">MANUAL</option><option value="TP1">TP1</option><option value="TL BREAK">TL BREAK</option><option value="SL">SL</option><option value="EOD">EOD</option></select></label>
@@ -369,7 +369,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 
     <div class="card">
       <div class="hd" style="justify-content:space-between;margin-bottom:6px">
-        <h3 style="margin:0">Strategy Signal Journal <small style="font-weight:400">(14-Day Single Lot: NIFTY 25 / SENSEX 20)</small></h3>
+        <h3 style="margin:0">Strategy Signal Journal <small style="font-weight:400">(14-Day Single Lot: NIFTY 65 / SENSEX 20)</small></h3>
         <span id="jrn-strat-badge" class="badge mid"></span>
       </div>
       <div id="jrn-strategy-body"><p class="sub">Loading recent strategy trades…</p></div>
@@ -428,7 +428,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       </div>
       <p class="sub" style="margin-top:4px">Download an Excel (<code>.xlsx</code>) workbook containing <b>Personal Journal</b>, <b>Telegram Logs</b>, <b>Upstox Order Logs</b>, <b>Strategy Signals</b>, and non-secret <b>Settings</b>. Secret tokens are masked and never exported.</p>
       <div style="margin-top:10px">
-        <a href="/api/export/excel" class="btn" style="background:var(--px);border-color:var(--px);text-decoration:none;display:inline-flex;align-items:center">Download Multi-Sheet Excel (.xlsx)</a>
+        <button type="button" class="btn" style="background:var(--px);border-color:var(--px);display:inline-flex;align-items:center" onclick="downloadExcelWorkbook(this)">Download Multi-Sheet Excel (.xlsx)</button>
       </div>
     </div>
 
@@ -497,6 +497,7 @@ const TELEGRAM_STORAGE_KEY = 'paslinTelegramCreds';
 const UPSTOX_STORAGE_KEY = 'paslinUpstoxDaily';
 const LEGACY_SETTINGS_KEY = 'paslinSavedSettings';
 const SETTINGS_DRAFT_KEY = 'paslinSettingsDraft';
+const SECRET_SETTINGS_FIELD_IDS = new Set(['set-token', 'tg-token', 'set-sandbox-token']);
 const SETTINGS_FIELD_IDS = [
   'set-token', 'set-sym', 'set-maxtrades',
   'tg-token', 'tg-chatid', 'tg-enabled', 'tg-entries', 'tg-exits', 'tg-monitor',
@@ -509,6 +510,42 @@ let serverHasTelegramCreds = false;
 let serverHasUpstoxToken = false;
 let serverHasUpstoxDailyNeed = false;
 let serverUpstoxTokenMasked = '';
+
+let authEpoch = 0;
+let liveAbortCtrl = null;
+
+async function downloadExcelWorkbook(btn) {
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Preparing .xlsx…'; }
+  try {
+    const resp = await fetch(`/api/export/excel?ts=${Date.now()}`, { cache: 'no-store' });
+    if (!resp.ok) {
+      const errJson = await resp.json().catch(() => null);
+      throw new Error(errJson?.error || `Export failed (HTTP ${resp.status})`);
+    }
+    const blob = await resp.blob();
+    const disp = resp.headers.get('Content-Disposition') || '';
+    const m = disp.match(/filename="?([^";]+)"?/i);
+    const fname = m ? m[1] : `Room_To_Grow_Workbook_${getUpstoxTradingDayIST()}.xlsx`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (err) {
+    const msgEl = document.getElementById('jrn-status') || document.getElementById('settings-msg');
+    if (msgEl) {
+      msgEl.style.display = 'block';
+      msgEl.className = 'dnt';
+      msgEl.textContent = err?.message || 'Excel export failed.';
+    }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev; }
+  }
+}
 
 function getUpstoxTradingDayIST(date = new Date()) {
   const shifted = new Date(date.getTime() + 2 * 60 * 60 * 1000);
@@ -525,79 +562,67 @@ function readJsonStore(key) {
   }
 }
 
-function migrateLegacySettingsStore() {
+function scrubBrowserSecretStores() {
   try {
-    const legacy = readJsonStore(LEGACY_SETTINGS_KEY);
-    if (!Object.keys(legacy).length) return;
-    const tgCur = readJsonStore(TELEGRAM_STORAGE_KEY);
-    const upxCur = readJsonStore(UPSTOX_STORAGE_KEY);
-    const tgKeys = ['telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
-    const upxKeys = ['upstoxToken', 'upstoxSandboxToken', 'instrument', 'maxTrades', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'];
-    let tgChanged = false, upxChanged = false;
-    tgKeys.forEach(k => {
-      if (legacy[k] !== undefined && tgCur[k] === undefined) { tgCur[k] = legacy[k]; tgChanged = true; }
-    });
-    upxKeys.forEach(k => {
-      if (legacy[k] !== undefined && upxCur[k] === undefined) {
-        upxCur[k] = legacy[k];
-        if (k === 'upstoxToken' && !upxCur.upstoxTokenDay) upxCur.upstoxTokenDay = getUpstoxTradingDayIST();
-        upxChanged = true;
-      }
-    });
-    if (tgChanged) localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(tgCur));
-    if (upxChanged) localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(upxCur));
     localStorage.removeItem(LEGACY_SETTINGS_KEY);
+    const tg = readJsonStore(TELEGRAM_STORAGE_KEY);
+    if ('telegramBotToken' in tg) {
+      delete tg.telegramBotToken;
+      localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(tg));
+    }
+    const upx = readJsonStore(UPSTOX_STORAGE_KEY);
+    if ('upstoxToken' in upx || 'upstoxSandboxToken' in upx || 'upstoxTokenDay' in upx) {
+      delete upx.upstoxToken;
+      delete upx.upstoxSandboxToken;
+      delete upx.upstoxTokenDay;
+      localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(upx));
+    }
+    const draft = readDraftStore();
+    let draftDirty = false;
+    SECRET_SETTINGS_FIELD_IDS.forEach(id => {
+      if (id in draft) { delete draft[id]; draftDirty = true; }
+    });
+    if (draftDirty) sessionStorage.setItem(SETTINGS_DRAFT_KEY, JSON.stringify(draft));
   } catch (_) {}
 }
 
 function readTelegramCredsStore() {
-  migrateLegacySettingsStore();
+  scrubBrowserSecretStores();
   return readJsonStore(TELEGRAM_STORAGE_KEY);
 }
 
 function writeTelegramCredsStore(patch) {
   try {
     const cur = readTelegramCredsStore();
-    const tgKeys = ['telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
+    const tgKeys = ['telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor'];
     const next = { ...cur };
     tgKeys.forEach(k => {
       if (patch[k] !== undefined) next[k] = patch[k];
     });
+    delete next.telegramBotToken;
     localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(next));
   } catch (_) {}
 }
 
 function readUpstoxDailyStore() {
-  migrateLegacySettingsStore();
+  scrubBrowserSecretStores();
   const data = readJsonStore(UPSTOX_STORAGE_KEY);
-  const today = getUpstoxTradingDayIST();
-  const tokenExpired = Boolean(data.upstoxToken && data.upstoxTokenDay && data.upstoxTokenDay !== today);
-  return { ...data, currentDay: today, tokenExpired };
+  return { ...data, currentDay: getUpstoxTradingDayIST(), tokenExpired: false };
 }
 
-function writeUpstoxDailyStore(patch, markTokenToday = false) {
+function writeUpstoxDailyStore(patch) {
   try {
     const cur = readJsonStore(UPSTOX_STORAGE_KEY);
-    const upxKeys = ['upstoxToken', 'upstoxSandboxToken', 'instrument', 'maxTrades', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'];
+    const upxKeys = ['instrument', 'maxTrades', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'];
     const next = { ...cur };
     upxKeys.forEach(k => {
       if (patch[k] !== undefined) next[k] = patch[k];
     });
-    if (patch.upstoxToken || markTokenToday) {
-      next.upstoxTokenDay = getUpstoxTradingDayIST();
-    }
+    delete next.upstoxToken;
+    delete next.upstoxSandboxToken;
+    delete next.upstoxTokenDay;
     localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(next));
   } catch (_) {}
-}
-
-function readSavedSettingsStore() {
-  const tg = readTelegramCredsStore();
-  const upx = readUpstoxDailyStore();
-  return {
-    ...tg,
-    ...upx,
-    upstoxToken: upx.tokenExpired ? '' : (upx.upstoxToken || '')
-  };
 }
 
 function writeSavedSettingsStore(patch) {
@@ -619,6 +644,7 @@ function writeDraftStore() {
   try {
     const draft = {};
     dirtySettingsFields.forEach(id => {
+      if (SECRET_SETTINGS_FIELD_IDS.has(id)) return;
       const el = document.getElementById(id);
       if (el) draft[id] = el.value;
     });
@@ -654,10 +680,8 @@ function restoreSettingsInputsFromBrowser() {
   const tg = readTelegramCredsStore();
   const upx = readUpstoxDailyStore();
   const map = {
-    'set-token': upx.tokenExpired ? '' : upx.upstoxToken,
     'set-sym': upx.instrument,
     'set-maxtrades': upx.maxTrades,
-    'tg-token': tg.telegramBotToken,
     'tg-chatid': tg.telegramChatId,
     'tg-enabled': tg.telegramEnabled !== undefined ? String(Boolean(tg.telegramEnabled)) : undefined,
     'tg-entries': tg.telegramNotifyEntries !== undefined ? String(Boolean(tg.telegramNotifyEntries)) : undefined,
@@ -666,8 +690,7 @@ function restoreSettingsInputsFromBrowser() {
     'set-ord-mode': upx.upstoxOrderMode,
     'set-ord-auto': upx.upstoxAutoOrder !== undefined ? String(Boolean(upx.upstoxAutoOrder)) : undefined,
     'set-ord-prod': upx.upstoxOrderProduct,
-    'set-ord-lots': upx.upstoxOrderLots,
-    'set-sandbox-token': upx.upstoxSandboxToken
+    'set-ord-lots': upx.upstoxOrderLots
   };
   Object.entries(map).forEach(([id, val]) => {
     if (val === undefined || val === null || val === '') return;
@@ -677,6 +700,7 @@ function restoreSettingsInputsFromBrowser() {
 
   const draft = readDraftStore();
   Object.entries(draft).forEach(([id, val]) => {
+    if (SECRET_SETTINGS_FIELD_IDS.has(id)) return;
     const el = document.getElementById(id);
     if (el && val !== undefined && val !== null) {
       el.value = val;
@@ -696,7 +720,6 @@ async function handleLogin(e) {
   try {
     const r = await fetch('/api/login', {
       method: 'POST',
-      credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
     });
@@ -704,10 +727,15 @@ async function handleLogin(e) {
     if (r.status === 401) {
       throw new Error('Invalid credentials — check the ADMIN_USER / ADMIN_PASS configured for this environment.');
     }
+    if (r.status === 429) {
+      throw new Error(data?.message || 'Too many failed login attempts. Please wait and try again.');
+    }
     if (!r.ok || !data?.success) {
       throw new Error(data?.message || `Login failed (HTTP ${r.status}). Refresh the preview and try again.`);
     }
+    authEpoch += 1;
     try { localStorage.setItem('paslinAuth', '1'); } catch (_) {}
+    document.getElementById('login-pass').value = '';
     showPortal();
   } catch (ex) {
     err.textContent = ex?.message || 'Invalid credentials. Please try again.';
@@ -717,25 +745,60 @@ async function handleLogin(e) {
   }
 }
 async function showPortal() {
+  scrubBrowserSecretStores();
   document.getElementById('login-container').style.display = 'none';
   document.getElementById('portal-container').style.display = 'block';
-  bindSettingsDirtyListeners();
-  restoreSettingsInputsFromBrowser();
+  try {
+    bindSettingsDirtyListeners();
+    restoreSettingsInputsFromBrowser();
+  } catch (_) {}
+  if (!hasLiveData) {
+    const ln = document.getElementById('live-notice');
+    const lg = document.getElementById('live-grid');
+    if (ln) { ln.className = 'sub'; ln.textContent = 'Loading market data…'; }
+    if (lg) lg.innerHTML = '<p class="sub">Loading…</p>';
+  }
   loadSettings();
   loadLive();
 }
 function handleLogout() {
-  try {
-    localStorage.removeItem('paslinAuth');
-    clearDraftStore();
-  } catch (_) {}
+  authEpoch += 1;
+  if (liveAbortCtrl) {
+    try { liveAbortCtrl.abort(); } catch (_) {}
+    liveAbortCtrl = null;
+  }
+  liveInFlight = false;
+  pendingForcedLive = false;
+  fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  try { localStorage.removeItem('paslinAuth'); } catch (_) {}
+  clearDraftStore();
   dirtySettingsFields.clear();
   settingsHydratedFromServer = false;
   settingsAutoSyncedOnce = false;
+  hasLiveData = false;
   document.getElementById('portal-container').style.display = 'none';
   document.getElementById('login-container').style.display = 'flex';
+  const err = document.getElementById('login-err');
+  if (err) err.style.display = 'none';
 }
-try { if (localStorage.getItem('paslinAuth') === '1') showPortal(); } catch (_) {}
+(function restorePortalAuth() {
+  scrubBrowserSecretStores();
+  try {
+    if (localStorage.getItem('paslinAuth') === '1') showPortal();
+  } catch (_) {}
+})();
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  const reportBootErr = (errMsg) => {
+    const portal = document.getElementById('portal-container');
+    const lg = document.getElementById('live-grid');
+    if (portal && portal.style.display === 'block' && !hasLiveData && lg && /Loading/.test(lg.textContent || '')) {
+      lg.innerHTML = `<div class="card"><p class="dnt">${escHtml(errMsg || 'Dashboard error occurred.')}</p><button type="button" class="btn" style="margin-top:8px" onclick="loadLive(true)">Retry</button></div>`;
+    }
+  };
+  window.addEventListener('error', ev => reportBootErr(ev?.message || ev?.error?.message));
+  window.addEventListener('unhandledrejection', ev => reportBootErr(ev?.reason?.message || String(ev?.reason || '')));
+}
 
 function tick() {
   const d = new Date();
@@ -930,12 +993,22 @@ function column(d, m) {
 }
 
 let xrayStocksList = [];
-let xrayChartState = { symbol: null, tf: '5m', days: 2, data: null };
+let xrayChartState = {
+  symbol: null, tf: '5m', days: 2, data: null,
+  layers: { ema20: true, pdhl: true, orb: true, liq: true, volSpike: true }
+};
+
+function toggleXrayChartLayer(key) {
+  if (!xrayChartState.layers || !(key in xrayChartState.layers)) return;
+  xrayChartState.layers[key] = !xrayChartState.layers[key];
+  if (xrayChartState.data) renderXrayStockPanel(xrayChartState.data, false, '');
+}
 
 function renderStockChartSvg(d) {
   const candles = d.candles || [];
   if (!candles.length) return '<p class="sub" style="padding:16px">No candle data available for this timeframe.</p>';
 
+  const layers = xrayChartState.layers || {};
   const W = 820, H = 370;
   const x0 = 12, x1 = 716, top = 14, bot = 338;
   const volTop = 278, volBot = bot;
@@ -945,8 +1018,12 @@ function renderStockChartSvg(d) {
 
   const obs = d.orderBlocks || [];
   const tp = d.tradePlan || null;
+  const lv = d.levels || {};
   const allPrices = candles.flatMap(c => [c.h, c.l]);
-  candles.forEach(c => { if (c.vwap != null) allPrices.push(c.vwap); });
+  candles.forEach(c => {
+    if (c.vwap != null) allPrices.push(c.vwap);
+    if (layers.ema20 && c.ema20 != null) allPrices.push(c.ema20);
+  });
   obs.forEach(o => { allPrices.push(o.bot, o.top); });
   if (tp) {
     allPrices.push(tp.entry, tp.sl, tp.target);
@@ -961,6 +1038,7 @@ function renderStockChartSvg(d) {
   const lo = loRaw - padLo;
   const y = v => top + (1 - (v - lo) / Math.max(0.01, hi - lo)) * (bot - top);
   const X = i => x0 + (i + 0.5) * dx;
+  const inRange = v => v != null && Number.isFinite(Number(v)) && v >= lo && v <= hi;
 
   let svg = `<defs><clipPath id="${clipId}"><rect x="${x0}" y="${top}" width="${x1 - x0}" height="${bot - top}"/></clipPath></defs>`;
 
@@ -998,16 +1076,75 @@ function renderStockChartSvg(d) {
 
   let plot = '';
 
-  // Subtle volume bars
+  // Subtle volume bars (+ optional institutional volume spike highlights)
   const maxVol = Math.max(1, ...candles.map(c => c.v || 0));
   candles.forEach((c, i) => {
     if (!c.v) return;
     const vh = (c.v / maxVol) * (volBot - volTop);
     const vy = volBot - vh;
     const isUp = c.c >= c.o;
+    const isSpike = layers.volSpike && c.volSpike;
     const bw = Math.max(1.2, dx * 0.65);
-    plot += `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${vy.toFixed(1)}" width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" fill="${isUp ? 'rgba(22,132,91,.18)' : 'rgba(196,58,58,.18)'}"/>`;
+    const fill = isSpike
+      ? (isUp ? 'rgba(22,132,91,.55)' : 'rgba(196,58,58,.55)')
+      : (isUp ? 'rgba(22,132,91,.16)' : 'rgba(196,58,58,.16)');
+    plot += `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${vy.toFixed(1)}" width="${bw.toFixed(1)}" height="${vh.toFixed(1)}" fill="${fill}"/>`;
+    if (isSpike) {
+      plot += `<circle cx="${X(i).toFixed(1)}" cy="${Math.max(volTop + 2, vy - 3).toFixed(1)}" r="2" fill="#d97706"/>`;
+    }
   });
+
+  // Key Liquidity & Support/Resistance levels (when toggled ON)
+  const usedTagYs = [];
+  const drawRefLine = (priceVal, label, stroke, dash = '3 3', startX = x0, tagBg = '#f8fafc', tagFg = '#475569') => {
+    if (!inRange(priceVal)) return;
+    const ly = y(priceVal);
+    plot += `<line x1="${startX.toFixed(1)}" y1="${ly.toFixed(1)}" x2="${x1}" y2="${ly.toFixed(1)}" stroke="${stroke}" stroke-width="1" stroke-dasharray="${dash}"/>`;
+    if (usedTagYs.some(prevY => Math.abs(prevY - ly) < 13)) return;
+    usedTagYs.push(ly);
+    const txt = `${label} ${fmt2(priceVal)}`;
+    const boxW = Math.max(58, txt.length * 5.2 + 8);
+    const ty = Math.max(top + 7, Math.min(bot - 7, ly));
+    const tx = Math.min(x1 - boxW - 4, startX + 4);
+    plot += `<rect x="${tx.toFixed(1)}" y="${(ty - 6.5).toFixed(1)}" width="${boxW.toFixed(1)}" height="12" rx="2" fill="${tagBg}" fill-opacity="0.92" stroke="${stroke}" stroke-width="0.6"/>`;
+    plot += `<text x="${(tx + 4).toFixed(1)}" y="${(ty + 2.5).toFixed(1)}" font-size="8" font-weight="700" fill="${tagFg}">${escHtml(txt)}</text>`;
+  };
+
+  if (layers.liq) {
+    const liqDrawn = new Set();
+    (lv.liquidity || []).forEach(l => {
+      const k = Math.round(l.price * 10);
+      if (liqDrawn.has(k)) return;
+      liqDrawn.add(k);
+      const isBsl = l.side === 'BSL';
+      drawRefLine(l.price, isBsl ? 'BSL' : 'SSL', isBsl ? '#ef4444' : '#10b981', '2 3', x0, isBsl ? '#fef2f2' : '#ecfdf5', isBsl ? '#991b1b' : '#065f46');
+    });
+    if (lv.resistance && !liqDrawn.has(Math.round(lv.resistance * 10))) {
+      drawRefLine(lv.resistance, 'RES', '#94a3b8', '2 3', x0, '#f8fafc', '#475569');
+    }
+    if (lv.support && !liqDrawn.has(Math.round(lv.support * 10))) {
+      drawRefLine(lv.support, 'SUP', '#94a3b8', '2 3', x0, '#f8fafc', '#475569');
+    }
+  }
+
+  // Previous Day High / Low (PDH / PDL)
+  if (layers.pdhl) {
+    if (lv.pdh != null) drawRefLine(lv.pdh, 'PDH', '#475569', '5 3', x0, '#f1f5f9', '#334155');
+    if (lv.pdl != null) drawRefLine(lv.pdl, 'PDL', '#475569', '5 3', x0, '#f1f5f9', '#334155');
+  }
+
+  // Today's 15m Opening Range High / Low (ORB)
+  if (layers.orb && lv.orbHigh != null && lv.orbLow != null) {
+    const latestYmd = candles[candles.length - 1]?.ymd;
+    const todayStartIdx = candles.findIndex(c => c.ymd === latestYmd);
+    const orbX = todayStartIdx >= 0 ? x0 + todayStartIdx * dx : x0;
+    if (inRange(lv.orbHigh) && inRange(lv.orbLow)) {
+      const oyTop = y(lv.orbHigh), oyBot = y(lv.orbLow);
+      plot += `<rect x="${orbX.toFixed(1)}" y="${oyTop.toFixed(1)}" width="${(x1 - orbX).toFixed(1)}" height="${Math.max(1, oyBot - oyTop).toFixed(1)}" fill="rgba(15,118,110,.05)"/>`;
+    }
+    drawRefLine(lv.orbHigh, 'ORB H', '#0f766e', '4 2', orbX, '#f0fdfa', '#0f766e');
+    drawRefLine(lv.orbLow, 'ORB L', '#0f766e', '4 2', orbX, '#f0fdfa', '#0f766e');
+  }
 
   // Active Order Block Zone (single clean box)
   obs.forEach(ob => {
@@ -1043,6 +1180,19 @@ function renderStockChartSvg(d) {
     plot += `<line x1="${cx.toFixed(1)}" y1="${y(c.h).toFixed(1)}" x2="${cx.toFixed(1)}" y2="${y(c.l).toFixed(1)}" stroke="${col}" stroke-width="1"/>`;
     plot += `<rect x="${(cx - bodyW / 2).toFixed(1)}" y="${Math.min(yo, yc).toFixed(1)}" width="${bodyW.toFixed(1)}" height="${Math.max(1, Math.abs(yo - yc)).toFixed(1)}" fill="${col}"/>`;
   });
+
+  // EMA 20 overlay
+  if (layers.ema20) {
+    let emaPath = '';
+    candles.forEach((c, i) => {
+      if (c.ema20 == null) return;
+      const cmd = !emaPath ? 'M' : 'L';
+      emaPath += `${cmd}${X(i).toFixed(1)} ${y(c.ema20).toFixed(1)} `;
+    });
+    if (emaPath) {
+      plot += `<path d="${emaPath}" fill="none" stroke="#7c3aed" stroke-width="1.35"/>`;
+    }
+  }
 
   // Intraday VWAP
   let vwapPath = '';
@@ -1110,13 +1260,15 @@ function handleXrayChartHover(evt) {
     xhair.style.display = 'block';
   }
   const chgCls = c.c >= c.o ? 'upt' : 'dnt';
+  const volMeta = c.volRatio != null ? ` (<b style="color:${c.volSpike ? '#d97706' : 'inherit'}">${c.volRatio}x</b>)` : '';
   tip.innerHTML = `<b>${escHtml(c.dayLabel)} ${escHtml(c.time)} IST</b>`
     + `<span>O <b>${fmt2(c.o)}</b></span>`
     + `<span>H <b>${fmt2(c.h)}</b></span>`
     + `<span>L <b>${fmt2(c.l)}</b></span>`
     + `<span>C <b class="${chgCls}">${fmt2(c.c)}</b></span>`
-    + `<span>Vol <b>${c.v ? fmt(c.v) : '-'}</b></span>`
-    + (c.vwap != null ? `<span>VWAP <b style="color:var(--accent)">${fmt2(c.vwap)}</b></span>` : '');
+    + `<span>Vol <b>${c.v ? fmt(c.v) : '-'}</b>${volMeta}</span>`
+    + (c.vwap != null ? `<span>VWAP <b style="color:var(--accent)">${fmt2(c.vwap)}</b></span>` : '')
+    + (c.ema20 != null ? `<span>EMA20 <b style="color:#7c3aed">${fmt2(c.ema20)}</b></span>` : '');
 }
 
 function clearXrayChartHover() {
@@ -1167,14 +1319,33 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
   const tfLbl = d.timeframe === '5m' ? '5-min' : d.timeframe === '15m' ? '15-min' : '1-hour';
   const tp = d.tradePlan || null;
   const rd = d.reading || {};
+  const cf = d.confluence || {};
+  const lv = d.levels || {};
+  const layers = xrayChartState.layers || {};
   const lastCandle = (d.candles || [])[(d.candles || []).length - 1];
 
   const defaultTooltip = lastCandle
-    ? `<b>${escHtml(lastCandle.dayLabel)} ${escHtml(lastCandle.time)} IST</b> <span>O <b>${fmt2(lastCandle.o)}</b></span> <span>H <b>${fmt2(lastCandle.h)}</b></span> <span>L <b>${fmt2(lastCandle.l)}</b></span> <span>C <b>${fmt2(lastCandle.c)}</b></span>${lastCandle.vwap != null ? ` <span>VWAP <b style="color:var(--accent)">${fmt2(lastCandle.vwap)}</b></span>` : ''}`
+    ? `<b>${escHtml(lastCandle.dayLabel)} ${escHtml(lastCandle.time)} IST</b> <span>O <b>${fmt2(lastCandle.o)}</b></span> <span>H <b>${fmt2(lastCandle.h)}</b></span> <span>L <b>${fmt2(lastCandle.l)}</b></span> <span>C <b>${fmt2(lastCandle.c)}</b></span>${lastCandle.vwap != null ? ` <span>VWAP <b style="color:var(--accent)">${fmt2(lastCandle.vwap)}</b></span>` : ''}${lastCandle.ema20 != null ? ` <span>EMA20 <b style="color:#7c3aed">${fmt2(lastCandle.ema20)}</b></span>` : ''}`
     : 'Hover chart for OHLC & VWAP';
 
   const setupBadgeCls = tp ? (tp.action === 'BUY' ? 'up' : 'dn') : 'mid';
   const setupBadgeTxt = tp ? `${tp.action} · ${tp.obSide} OB` : 'NO CLEAR SETUP';
+
+  const layerToggleBtns = [
+    { key: 'ema20', label: 'EMA 20', col: '#7c3aed' },
+    { key: 'pdhl', label: 'PDH/PDL', col: '#475569' },
+    { key: 'orb', label: 'ORB 15m', col: '#0f766e' },
+    { key: 'liq', label: 'S&R / Liq', col: '#0284c7' },
+    { key: 'volSpike', label: 'Vol Spikes', col: '#d97706' }
+  ].map(l => {
+    const on = Boolean(layers[l.key]);
+    return `<button type="button" class="tf-btn ${on ? 'active' : ''}" style="${on ? `border-color:${l.col};color:${l.col}` : ''}" onclick="toggleXrayChartLayer('${l.key}')">${l.label}</button>`;
+  }).join('');
+
+  const confChecksHtml = (cf.checks || []).length
+    ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0 4px">${cf.checks.map(c => `<span class="pill ${c.ok ? 'GOOD' : 'NEUTRAL'}" style="font-size:10px;padding:1px 6px">${escHtml(c.label)} ${c.ok ? '✓' : '·'}</span>`).join('')}</div>`
+    : '';
+  const confScoreTone = (cf.score || 0) >= 4 ? 'upt' : ((cf.score || 0) >= 3 ? 'midt' : 'sub');
 
   panel.innerHTML = `<div class="card" style="border-color:#cbd5e1">
     <div class="hd" style="justify-content:space-between;gap:10px;margin-bottom:10px">
@@ -1186,7 +1357,7 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
           <span class="badge ${setupBadgeCls}">${setupBadgeTxt}</span>
           ${loading ? '<small class="sub">Updating…</small>' : ''}
         </div>
-        <p class="sub" style="margin-top:2px">${escHtml(d.sector || 'NSE Equity')} &middot; ${escHtml(tfLbl)} candles &middot; ${d.days}D</p>
+        <p class="sub" style="margin-top:2px">${escHtml(d.sector || 'NSE Equity')} &middot; ${escHtml(tfLbl)} candles &middot; ${d.days}D${cf.verdict ? ` &middot; <b class="${confScoreTone}">${escHtml(cf.verdict)} (${cf.score}/${cf.maxScore})</b>` : ''}</p>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <select style="width:auto;padding:4px 8px;font-size:12px" onchange="openXrayStockChart(this.value)">${symOptions}</select>
@@ -1203,11 +1374,14 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
 
     <div class="xray-chart-layout">
       <div>
-        <div class="legend" style="margin:0 0 6px;display:flex;gap:12px;flex-wrap:wrap">
-          <span><b class="upt">&#9632;</b> Bull OB</span>
-          <span><b class="dnt">&#9632;</b> Bear OB</span>
-          <span><b style="color:var(--accent)">&#9632;</b> VWAP</span>
-          <span><b style="color:#d97706">&#9632;</b> Entry &middot; <b class="dnt">SL</b> &middot; <b class="upt">Target</b></span>
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 6px">
+          <div class="legend" style="margin:0;display:flex;gap:10px;flex-wrap:wrap">
+            <span><b class="upt">&#9632;</b> Bull OB</span>
+            <span><b class="dnt">&#9632;</b> Bear OB</span>
+            <span><b style="color:var(--accent)">&#9632;</b> VWAP</span>
+            <span><b style="color:#d97706">&#9632;</b> Entry &middot; <b class="dnt">SL</b> &middot; <b class="upt">Target</b></span>
+          </div>
+          <div class="tf-group">${layerToggleBtns}</div>
         </div>
         <div class="xray-svg-wrap">
           ${renderStockChartSvg(d)}
@@ -1229,14 +1403,18 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
           </div>
           <div class="kv-row"><span class="sub">OB Zone (${escHtml(tp.status)})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
           <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
-          <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'} num">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
+          <div class="kv-row"><span class="sub">VWAP / EMA20</span><b class="num">${rd.vsVwap ? `<span class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Abv' : 'Blw'} ${fmt2(rd.vsVwap.vwap)}</span>` : '-'}${cf.ema20 != null ? ` · <span class="${cf.aboveEma20 ? 'upt' : 'dnt'}">${fmt2(cf.ema20)}</span>` : ''}</b></div>
+          <div class="kv-row"><span class="sub">ORB 15m / PDH-L</span><b class="num">${cf.orbState ? escHtml(cf.orbState.replace(' ORB', '')) : '-'}${lv.pdh != null ? ` · ${fmt2(lv.pdl)}–${fmt2(lv.pdh)}` : ''}</b></div>
           <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)} ${rd.trend15m === 'Up' ? '✓' : rd.trend15m === 'Down' ? '✗' : ''}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)} ${rd.trend1h === 'Up' ? '✓' : rd.trend1h === 'Down' ? '✗' : ''}</span></b></div>
-          <p class="note" style="margin-top:8px">${escHtml(tp.note)}</p>
+          ${confChecksHtml}
+          <p class="note" style="margin-top:6px">${escHtml(tp.note)}${cf.recentVolSpike ? ' Recent institutional volume spike confirms momentum.' : ''}</p>
         ` : `
           <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
-          <div class="kv-row"><span class="sub">VWAP</span>${rd.vsVwap ? `<b class="${rd.vsVwap.above ? 'upt' : 'dnt'} num">${rd.vsVwap.above ? 'Above' : 'Below'} ${fmt2(rd.vsVwap.vwap)}</b>` : '<b>-</b>'}</div>
+          <div class="kv-row"><span class="sub">VWAP / EMA20</span><b class="num">${rd.vsVwap ? `<span class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Abv' : 'Blw'} ${fmt2(rd.vsVwap.vwap)}</span>` : '-'}${cf.ema20 != null ? ` · <span class="${cf.aboveEma20 ? 'upt' : 'dnt'}">${fmt2(cf.ema20)}</span>` : ''}</b></div>
+          <div class="kv-row"><span class="sub">ORB 15m / PDH-L</span><b class="num">${cf.orbState ? escHtml(cf.orbState.replace(' ORB', '')) : '-'}${lv.pdh != null ? ` · ${fmt2(lv.pdl)}–${fmt2(lv.pdh)}` : ''}</b></div>
           <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
-          <p class="note" style="margin-top:8px">${rd.note ? escHtml(rd.note) + ' ' : ''}No trend-aligned Order Block trade setup at current price on ${escHtml(d.timeframe)}.</p>
+          ${confChecksHtml}
+          <p class="note" style="margin-top:6px">${rd.note ? escHtml(rd.note) + ' ' : ''}No trend-aligned Order Block trade setup at current price on ${escHtml(d.timeframe)}.</p>
         `}
       </div>
     </div>
@@ -1732,15 +1910,13 @@ async function quickUpdateUpstoxToken(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ upstoxToken: tok })
     });
-    const data = await resp.json();
-    if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to update Upstox token');
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data?.success) throw new Error(data?.message || data?.error || 'Failed to update Upstox token');
 
-    autoRecoveredTokenAttempted = '';
     dirtySettingsFields.delete('set-token');
     writeDraftStore();
-    writeUpstoxDailyStore({ upstoxToken: tok }, true);
     const setTokEl = document.getElementById('set-token');
-    if (setTokEl) setTokEl.value = tok;
+    if (setTokEl) setTokEl.value = '';
     if (inp) inp.value = '';
 
     renderSettingsResult(data);
@@ -1799,71 +1975,42 @@ function renderLive(m) {
   renderSignalSummary(m);
 }
 
-async function tryRecoverServerTokenFromBrowser(daily) {
-  if (!daily || daily.hasToken) return false;
-  const savedUpx = readUpstoxDailyStore();
-  const savedTg = readTelegramCredsStore();
-  if (savedUpx.tokenExpired || !savedUpx.upstoxToken) return false;
-  if (autoRecoveredTokenAttempted === savedUpx.upstoxToken) return false;
-  autoRecoveredTokenAttempted = savedUpx.upstoxToken;
-  try {
-    const patch = {
-      upstoxToken: savedUpx.upstoxToken,
-      ...(savedUpx.upstoxSandboxToken ? { upstoxSandboxToken: savedUpx.upstoxSandboxToken } : {}),
-      ...(savedUpx.instrument ? { instrument: savedUpx.instrument } : {}),
-      ...(savedUpx.maxTrades != null ? { maxTrades: savedUpx.maxTrades } : {}),
-      ...(savedTg.telegramBotToken ? { telegramBotToken: savedTg.telegramBotToken } : {}),
-      ...(savedTg.telegramChatId ? { telegramChatId: savedTg.telegramChatId } : {}),
-      ...(savedTg.telegramEnabled !== undefined ? { telegramEnabled: savedTg.telegramEnabled } : {})
-    };
-    const r = await fetch('/api/settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch)
-    });
-    return r.ok;
-  } catch (_) {
-    return false;
-  }
-}
-
 async function loadLive(force = false) {
   if (liveInFlight) {
     if (force) pendingForcedLive = true;
     return;
   }
   liveInFlight = true;
+  const reqEpoch = authEpoch;
+  let timeoutId = null;
+  let timedOut = false;
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  liveAbortCtrl = ctrl;
+  if (ctrl) {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      try { ctrl.abort(); } catch (_) {}
+    }, 25000);
+  }
   updateRefreshStatus();
   try {
-    let r = await fetch(`/api/market?ts=${Date.now()}${force ? '&force=1' : ''}`, {cache: 'no-store'});
-    let data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Could not load market data.');
-    if (data.upstoxDaily && !data.upstoxDaily.hasToken) {
-      const recovered = await tryRecoverServerTokenFromBrowser(data.upstoxDaily);
-      if (recovered) {
-        r = await fetch(`/api/market?ts=${Date.now()}&force=1`, {cache: 'no-store'});
-        const retryData = await r.json();
-        if (r.ok) data = retryData;
-      }
-    }
-    if (data.upstoxDaily?.isUnauthorized) {
-      const savedUpx = readUpstoxDailyStore();
-      if (savedUpx.upstoxToken) {
-        try {
-          const cur = readJsonStore(UPSTOX_STORAGE_KEY);
-          delete cur.upstoxToken;
-          delete cur.upstoxTokenDay;
-          localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(cur));
-        } catch (_) {}
-      }
-    }
+    const fetchOpts = { cache: 'no-store' };
+    if (ctrl) fetchOpts.signal = ctrl.signal;
+    const r = await fetch(`/api/market?ts=${Date.now()}${force ? '&force=1' : ''}`, fetchOpts);
+    if (reqEpoch !== authEpoch) return;
+    const data = await r.json();
+    if (reqEpoch !== authEpoch) return;
+    if (!r.ok) throw new Error(data.error || data.message || 'Could not load market data.');
     renderLive(data);
     loadTelegramStatus();
     loadUpstoxOrders();
     hasLiveData = true;
     lastLiveAtMs = Date.now();
   } catch (e) {
-    const msg = e.message || 'Could not load market data.';
+    if (reqEpoch !== authEpoch) return;
+    const msg = timedOut
+      ? 'Market request timed out (25s) — click Retry to reload.'
+      : (e?.message || 'Could not load market data.');
     const noticeEl = document.getElementById('live-notice');
     const sigNoticeEl = document.getElementById('signals-notice');
     const sigBodyEl = document.getElementById('signals-body');
@@ -1875,7 +2022,14 @@ async function loadLive(force = false) {
         sigNoticeEl.textContent = `Refresh failed (${msg}) — showing last received signals.`;
       }
     } else {
-      document.getElementById('live-grid').innerHTML = `<p class="dnt">${escHtml(msg)}</p>`;
+      const liveGrid = document.getElementById('live-grid');
+      if (liveGrid) {
+        liveGrid.innerHTML = `<div class="card"><p class="dnt">${escHtml(msg)}</p><button type="button" class="btn" style="margin-top:8px" onclick="loadLive(true)">Retry</button></div>`;
+      }
+      if (noticeEl) {
+        noticeEl.className = 'dnt';
+        noticeEl.textContent = msg;
+      }
       if (sigNoticeEl) {
         sigNoticeEl.className = 'dnt';
         sigNoticeEl.textContent = `Could not load signals (${msg}).`;
@@ -1883,10 +2037,12 @@ async function loadLive(force = false) {
       if (sigBodyEl) sigBodyEl.innerHTML = `<div class="card"><p class="dnt">${escHtml(msg)}</p></div>`;
     }
   } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (liveAbortCtrl === ctrl) liveAbortCtrl = null;
     liveInFlight = false;
     nextRefreshIn = 30;
     updateRefreshStatus();
-    if (pendingForcedLive) {
+    if (pendingForcedLive && reqEpoch === authEpoch) {
       pendingForcedLive = false;
       loadLive(true);
     }
@@ -2047,7 +2203,7 @@ function syncJournalLotDefault() {
   const lotEl = document.getElementById('jrn-lotsize');
   if (!lotEl) return;
   if (sym.includes('SENSEX')) lotEl.value = 20;
-  else if (sym.includes('NIFTY')) lotEl.value = 25;
+  else if (sym.includes('NIFTY')) lotEl.value = 65;
 }
 
 function renderJournalSummary() {
@@ -2325,13 +2481,14 @@ function renderBrokerJournal() {
   let html = '';
   if (hasPos) {
     html += `<div class="hd" style="margin-bottom:6px"><h4 style="margin:0">Today\'s Positions</h4><small class="${tone(b.dayPnl)}">Day MTM: <b>${b.dayPnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(b.dayPnl))}</b></small></div>
-      <table style="margin-bottom:10px"><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>LTP</th><th>PnL (&#8377;)</th><th>Journal</th></tr>
+      <table style="margin-bottom:10px"><tr><th>Symbol</th><th>Product</th><th>Qty</th><th>Buy Qty</th><th>Sell Qty</th><th>Buy Avg</th><th>Sell Avg</th><th>LTP</th><th>PnL (&#8377;)</th><th>Journal</th></tr>
       ${b.positions.map((p, idx) => {
         const added = hasJournalBrokerRef(getBrokerPositionRef(p));
+        const ovBadge = Number(p.overnightQty || 0) !== 0 ? ` <span class="pill INFO" title="Overnight carry-forward: ${Number(p.overnightQty)}">CF ${Number(p.overnightQty)}</span>` : '';
         const btnHtml = added
           ? '<span class="pill GOOD">Added</span>'
           : `<button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="addBrokerPositionToJournal(${idx}, this)">+ Add</button>`;
-        return `<tr><td><b>${escHtml(p.symbol)}</b></td><td>${escHtml(p.product)}</td><td>${p.qty}</td><td>${fmt2(p.buyPrice)}</td><td>${fmt2(p.sellPrice)}</td><td>${fmt2(p.ltp)}</td><td class="${tone(p.pnl)}"><b>${p.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(p.pnl))}</b></td><td>${btnHtml}</td></tr>`;
+        return `<tr><td><b>${escHtml(p.symbol)}</b>${ovBadge}</td><td>${escHtml(p.product)}</td><td>${p.qty}</td><td>${p.buyQty}</td><td>${p.sellQty}</td><td>${fmt2(p.buyPrice)}</td><td>${fmt2(p.sellPrice)}</td><td>${fmt2(p.ltp)}</td><td class="${tone(p.pnl)}"><b>${p.pnl < 0 ? '-' : '+'}&#8377; ${fmt(Math.abs(p.pnl))}</b></td><td>${btnHtml}</td></tr>`;
       }).join('')}</table>`;
   }
   if (hasTrades) {
@@ -2412,7 +2569,7 @@ async function addJournalEntry(e) {
     symbol: document.getElementById('jrn-symbol').value.trim(),
     side: document.getElementById('jrn-side').value,
     lots: +document.getElementById('jrn-lots').value || 1,
-    lotSize: +document.getElementById('jrn-lotsize').value || 25,
+    lotSize: +document.getElementById('jrn-lotsize').value || 65,
     entryPrice: +document.getElementById('jrn-entry').value,
     exitPrice: document.getElementById('jrn-exit').value ? +document.getElementById('jrn-exit').value : null,
     exitReason: document.getElementById('jrn-reason').value,
@@ -2484,7 +2641,7 @@ async function copyStrategyToJournal(idx) {
   const t = (journalData.strategyTrades || [])[idx];
   if (!t) return;
   const msgEl = document.getElementById('jrn-form-msg');
-  const lotSize = t.index === 'SENSEX' ? 20 : 25;
+  const lotSize = t.index === 'SENSEX' ? 20 : 65;
   const payload = {
     symbol: t.index,
     side: t.side,
@@ -2973,11 +3130,6 @@ function renderSettingsResult(data) {
   syncQuickUpstoxBar(daily);
   const tg = data.telegram || {};
   const p = upx.profile;
-  const savedTg = readTelegramCredsStore();
-  const savedUpx = readUpstoxDailyStore();
-  if (upx.verified && !daily.needsDailyUpdate && savedUpx.upstoxToken && savedUpx.tokenExpired) {
-    writeUpstoxDailyStore({}, true);
-  }
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
@@ -3018,15 +3170,12 @@ function renderSettingsResult(data) {
     if (daily.needsDailyUpdate && cfg.hasUpstoxToken) {
       upxInput.classList.remove('input-saved');
       upxInput.placeholder = `Expired (${daily.tokenDay || 'old'}) — paste today's Upstox token`;
-      if (!dirtySettingsFields.has('set-token') && document.activeElement !== upxInput && savedUpx.tokenExpired) {
-        upxInput.value = '';
-      }
     } else {
-      syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, savedUpx.tokenExpired ? '' : savedUpx.upstoxToken, "Paste today's Upstox token", !daily.needsDailyUpdate);
+      syncTokenField('set-token', cfg.hasUpstoxToken, cfg.upstoxTokenMasked, '', "Paste today's Upstox token", !daily.needsDailyUpdate);
     }
   }
-  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, savedTg.telegramBotToken, 'Paste BotFather token', cfg.hasTelegramToken);
-  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, savedUpx.upstoxSandboxToken, 'Optional Sandbox API token', cfg.hasUpstoxSandboxToken);
+  syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, '', 'Paste BotFather token', cfg.hasTelegramToken);
+  syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, '', 'Optional Sandbox API token', cfg.hasUpstoxSandboxToken);
 
   const lblUpx = document.getElementById('lbl-upx-status');
   if (lblUpx) {
@@ -3175,46 +3324,8 @@ async function loadSettings() {
   try {
     const r = await fetch(`/api/settings?ts=${Date.now()}`, { cache: 'no-store' });
     if (!r.ok) return;
-    let data = await r.json();
-
-    const cfg = data?.appConfig || {};
-    const savedTg = readTelegramCredsStore();
-    const savedUpx = readUpstoxDailyStore();
-    if (!settingsAutoSyncedOnce) {
-      const patch = {};
-      if (!cfg.hasTelegramToken && savedTg.telegramBotToken) patch.telegramBotToken = savedTg.telegramBotToken;
-      if (!cfg.telegramChatId && savedTg.telegramChatId) patch.telegramChatId = savedTg.telegramChatId;
-      if (savedTg.telegramEnabled !== undefined && cfg.telegramEnabled !== savedTg.telegramEnabled && (!cfg.hasTelegramToken || !cfg.telegramChatId)) {
-        patch.telegramEnabled = savedTg.telegramEnabled;
-      }
-      if (!cfg.hasUpstoxToken && !savedUpx.tokenExpired && savedUpx.upstoxToken) {
-        patch.upstoxToken = savedUpx.upstoxToken;
-      }
-      if (!cfg.hasUpstoxSandboxToken && savedUpx.upstoxSandboxToken) patch.upstoxSandboxToken = savedUpx.upstoxSandboxToken;
-      if (Object.keys(patch).length) {
-        settingsAutoSyncedOnce = true;
-        if (savedUpx.instrument) patch.instrument = savedUpx.instrument;
-        if (savedUpx.maxTrades != null) patch.maxTrades = savedUpx.maxTrades;
-        if (savedTg.telegramNotifyEntries !== undefined) patch.telegramNotifyEntries = savedTg.telegramNotifyEntries;
-        if (savedTg.telegramNotifyExits !== undefined) patch.telegramNotifyExits = savedTg.telegramNotifyExits;
-        if (savedTg.telegramAutoMonitor !== undefined) patch.telegramAutoMonitor = savedTg.telegramAutoMonitor;
-        if (savedUpx.upstoxOrderMode) patch.upstoxOrderMode = savedUpx.upstoxOrderMode;
-        if (savedUpx.upstoxAutoOrder !== undefined) patch.upstoxAutoOrder = savedUpx.upstoxAutoOrder;
-        if (savedUpx.upstoxOrderProduct) patch.upstoxOrderProduct = savedUpx.upstoxOrderProduct;
-        if (savedUpx.upstoxOrderLots != null) patch.upstoxOrderLots = savedUpx.upstoxOrderLots;
-        const syncResp = await fetch('/api/settings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patch)
-        });
-        if (syncResp.ok) {
-          data = await syncResp.json();
-          if (hasLiveData) loadLive(true);
-          loadTelegramStatus();
-        }
-      }
-    }
-
+    const data = await r.json();
+    settingsAutoSyncedOnce = true;
     renderSettingsResult(data);
   } catch (_) {}
 }
@@ -3252,16 +3363,14 @@ async function saveDailyUpstoxOnly(btn) {
         ...(sTok ? { upstoxSandboxToken: sTok } : {})
       })
     });
-    const data = await resp.json();
-    if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to update daily Upstox token');
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data?.success) throw new Error(data?.message || data?.error || 'Failed to update daily Upstox token');
 
     dirtySettingsFields.delete('set-token');
     dirtySettingsFields.delete('set-sandbox-token');
     writeDraftStore();
-    writeUpstoxDailyStore({
-      ...(tok ? { upstoxToken: tok } : {}),
-      ...(sTok ? { upstoxSandboxToken: sTok } : {})
-    }, Boolean(tok));
+    document.getElementById('set-token').value = '';
+    document.getElementById('set-sandbox-token').value = '';
 
     if (msg) {
       if (data.upstox?.verified) {
@@ -3323,13 +3432,16 @@ async function saveAllSettings(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    const data = await resp.json();
-    if (!resp.ok || !data.success) throw new Error(data.message || 'Failed to save settings');
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data?.success) throw new Error(data?.message || data?.error || 'Failed to save settings');
 
     dirtySettingsFields.clear();
     clearDraftStore();
     writeTelegramCredsStore(body);
-    writeUpstoxDailyStore(body, Boolean(tok));
+    writeUpstoxDailyStore(body);
+    document.getElementById('set-token').value = '';
+    document.getElementById('tg-token').value = '';
+    document.getElementById('set-sandbox-token').value = '';
 
     const parts = ['All settings saved successfully'];
     if (data.upstox?.verified) {
