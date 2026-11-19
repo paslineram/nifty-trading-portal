@@ -1003,7 +1003,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
             adx: 0,
             atr: 0,
             paperPts: 0,
-            sideways: { score: 0, total: 6, label: 'CANDLE COOLDOWN', checks: [] },
+            sideways: { score: 0, total: 7, label: 'CANDLE COOLDOWN', tone: 'mid', isRangeBound: false, breakoutRisk: false, summary: 'Waiting for candle data', checks: [] },
             days: [],
             dayCounts: [],
             candles: [],
@@ -1084,11 +1084,35 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const prevRange = Math.round(prevDay.h - prevDay.l);
     const gapPct = prevClose ? ((todayOpen - prevClose) / prevClose) * 100 : 0;
 
+    // Option chain (real Upstox v2 when token is valid) — fetched before regime check so GEX gates range-bound vs breakout risk
+    const optRes = await fetchOptionChainData(inst.upstoxKey, spotPrice, inst.step, token, todayYmd);
+    const chain = optRes.ok ? optRes.chain : {
+        pcrAtm: '-', pcrTotal: '-', pcrAtmTone: '', pcrTotalTone: '',
+        putWall: null, callWall: null, maxPain: null,
+        oiCE: '-', oiPE: '-', atmIv: null,
+        expiry: optRes.error || 'Token required',
+        ladder: []
+    };
+
+    const posGex = optRes.ok && optRes.gexCr >= 0;
+    const negGex = optRes.ok && optRes.gexCr < 0;
+    const narrowCpr = medianCprPct > 0 && cprWidthPct <= medianCprPct;
+    const insideS1R1 = spotPrice >= s1 && spotPrice <= r1;
+    const trendBreak = (spotPrice > cprTop && supertrend === 'UP' && hmaSlope === 'UP')
+        || (spotPrice < cprBot && supertrend === 'DOWN' && hmaSlope === 'DOWN');
+
     const checks = [
         {
             pass: cprWidthPct > medianCprPct,
             name: 'Wide CPR (range-day sign)',
-            note: `CPR width ${cprWidthPct.toFixed(2)}% vs 20-day median ${medianCprPct.toFixed(2)}%`
+            note: `CPR width ${cprWidthPct.toFixed(2)}% vs 20-day median ${medianCprPct.toFixed(2)}%${narrowCpr ? ' (NARROW — breakout risk)' : ''}`
+        },
+        {
+            pass: posGex,
+            name: 'Positive Gamma (GEX >= 0)',
+            note: optRes.ok
+                ? `GEX ${optRes.gexCr > 0 ? '+' : ''}${optRes.gexCr} Cr (${posGex ? 'dealers dampen moves' : 'NEGATIVE — dealers amplify breakouts'})`
+                : `Unavailable (${optRes.error})`
         },
         {
             pass: adx < 22,
@@ -1096,9 +1120,9 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
             note: `ADX ${adx}`
         },
         {
-            pass: spotPrice >= s1 && spotPrice <= r1,
+            pass: insideS1R1,
             name: 'Price between S1 and R1',
-            note: `${Math.round(spotPrice).toLocaleString('en-IN')} ${spotPrice >= s1 && spotPrice <= r1 ? 'inside' : 'OUTSIDE'} ${Math.round(s1).toLocaleString('en-IN')} - ${Math.round(r1).toLocaleString('en-IN')}`
+            note: `${Math.round(spotPrice).toLocaleString('en-IN')} ${insideS1R1 ? 'inside' : 'OUTSIDE'} ${Math.round(s1).toLocaleString('en-IN')} - ${Math.round(r1).toLocaleString('en-IN')}`
         },
         {
             pass: Math.abs(gapPct) <= 0.30,
@@ -1117,25 +1141,47 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         }
     ];
     const score = checks.filter(c => c.pass).length;
+    const breakoutRisk = insideS1R1 && (negGex || narrowCpr || trendBreak);
+    const isTrueRangeBound = score >= 5 && insideS1R1 && !negGex && (!narrowCpr || (adx < 20 && !trendBreak));
+
+    let swLabel = 'MIXED / CHOPPY';
+    let swTone = 'mid';
+    let swSummary = `Score ${score}/7 — wait for direction or keep defined risk.`;
+    if (isTrueRangeBound) {
+        swLabel = 'RANGE-BOUND DAY';
+        swTone = 'up';
+        const wallTxt = (chain.putWall && chain.callWall)
+            ? ` · Option walls ${Math.round(chain.putWall).toLocaleString('en-IN')}–${Math.round(chain.callWall).toLocaleString('en-IN')}`
+            : '';
+        swSummary = `True range-bound corridor ${Math.round(s1).toLocaleString('en-IN')}–${Math.round(r1).toLocaleString('en-IN')}${wallTxt} (GEX supportive).`;
+    } else if (!insideS1R1 || (trendBreak && adx >= 22) || score <= 2) {
+        swLabel = 'TRENDING / BREAKOUT';
+        swTone = 'dn';
+        swSummary = `${!insideS1R1 ? 'Price broke outside S1–R1' : 'Active trend breakout'} (ADX ${adx}${negGex ? `, GEX ${optRes.gexCr} Cr` : ''}) — do NOT fade with naked option shorts.`;
+    } else if (breakoutRisk) {
+        swLabel = 'BREAKOUT RISK — NOT SAFE SIDEWAYS';
+        swTone = 'dn';
+        const reasons = [];
+        if (narrowCpr) reasons.push(`Narrow CPR (${cprWidthPct.toFixed(2)}% <= ${medianCprPct.toFixed(2)}%)`);
+        if (negGex) reasons.push(`Negative GEX (${optRes.gexCr} Cr)`);
+        if (trendBreak) reasons.push(`Supertrend ${supertrend} & HMA ${hmaSlope} outside CPR`);
+        swSummary = `Quiet box so far, but ${reasons.join(' + ')} — avoid naked short strangles/condors.`;
+    }
+
     const sideways = {
         score,
-        total: 6,
-        label: score >= 4 ? 'SIDEWAYS LIKELY' : 'TRENDING / MIXED',
+        total: checks.length,
+        label: swLabel,
+        tone: swTone,
+        isRangeBound: isTrueRangeBound,
+        breakoutRisk,
+        rangeBand: `${Math.round(s1).toLocaleString('en-IN')} – ${Math.round(r1).toLocaleString('en-IN')}`,
+        summary: swSummary,
         checks
     };
 
     const hourly = computeHourlyTrend(candles15m);
     const replay = computeSignalsAndReplay(chartCandles, candles15m, offsetInFull, atr, daily, fullHma, fullSt);
-
-    // Option chain (real Upstox v2 when token is valid)
-    const optRes = await fetchOptionChainData(inst.upstoxKey, spotPrice, inst.step, token, todayYmd);
-    const chain = optRes.ok ? optRes.chain : {
-        pcrAtm: '-', pcrTotal: '-', pcrAtmTone: '', pcrTotalTone: '',
-        putWall: null, callWall: null, maxPain: null,
-        oiCE: '-', oiPE: '-', atmIv: null,
-        expiry: optRes.error || 'Token required',
-        ladder: []
-    };
 
     // Seller advisory (real VIX + real GEX/skew when option chain is available)
     const seller = [];
@@ -1565,6 +1611,14 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
     }
     notices.push(`Signal filter: ${mode === 'BOTH' ? 'BOTH (NIFTY & SENSEX)' : mode + ' only'}.`);
 
+    const condorLines = instruments.map(inst => {
+        const sw = inst.sideways || {};
+        if (sw.isRangeBound) {
+            return `<b>${inst.key} (RANGE-BOUND DAY ${sw.score}/${sw.total}):</b> ${sw.summary} Hedged Iron Condor corridor around S1–R1 (${sw.rangeBand}) is valid.`;
+        }
+        return `<b>${inst.key} (${sw.label || 'NO RANGE'}):</b> ${sw.summary || 'Not suitable for Iron Condor / naked range selling.'}`;
+    });
+
     const finalXray = xray || fallbackXray || null;
     const xrayWarming = Boolean(includeXray && xrayTimedOut && !finalXray);
     const data = {
@@ -1581,7 +1635,7 @@ async function getLiveMarketSnapshot(token = '', selectedInstrument = 'BOTH', fo
         xray: finalXray,
         xrayWarming,
         autopilot: null,
-        condor: null,
+        condor: condorLines.join('<br>'),
         alerts: []
     };
 

@@ -947,9 +947,10 @@ function column(d, m) {
     </div>
     <div class="tiles one"><div><small>Paper pts (replay)</small><b class="${tone(d.paperPts)}">${d.paperPts}</b></div></div>
 
-    <div class="sc"><h4>Sideways-day check <span class="badge ${sw.score >= 4 ? 'up' : 'mid'}">${sw.label} (${sw.score}/${sw.total})</span></h4>
-      <ul class="chk">${sw.checks.map(k => `<li><b class="${k.pass ? 'upt' : 'dnt'}">${k.pass ? 'PASS' : 'FAIL'}</b> ${k.name} <small>- ${k.note}</small></li>`).join('')}</ul>
-      <p class="note">Condor idea only when SIDEWAYS LIKELY and price is between S1 and R1. A description of the picture, not a prediction.</p></div>
+    <div class="sc"><h4>Range-bound / Sideways check <span class="badge ${sw.tone || (sw.isRangeBound ? 'up' : 'mid')}">${escHtml(sw.label)} (${sw.score}/${sw.total})</span></h4>
+      ${sw.summary ? `<p style="font-size:12px;margin:4px 0 6px;font-weight:600" class="${sw.tone === 'up' ? 'upt' : sw.tone === 'dn' ? 'dnt' : 'midt'}">${escHtml(sw.summary)}</p>` : ''}
+      <ul class="chk">${sw.checks.map(k => `<li><b class="${k.pass ? 'upt' : 'dnt'}">${k.pass ? 'PASS' : 'FAIL'}</b> ${escHtml(k.name)} <small>- ${escHtml(k.note)}</small></li>`).join('')}</ul>
+      <p class="note">True Range-Bound Day requires &ge; 5/7 checks passing, Positive GEX, Wide CPR, and spot inside S1&ndash;R1. Narrow CPR or Negative GEX triggers a Breakout Risk warning.</p></div>
 
     <div class="sc" style="padding:6px">${priceChart(d)}</div>
     <p class="legend">last 3 days, each day with its own levels: red dashed = resistance, green dashed = support, amber dotted = previous-day high/low, grey = pivot, shaded = CPR band &middot; <b style="color:var(--hma)">&mdash;</b> HMA(21) &middot; Supertrend line green up / red down &middot; trendlines: <b class="upt">&mdash;</b> support / <b class="dnt">&mdash;</b> resistance (ring = break) &middot; &#9650; SELL PE &#9660; SELL CE &middot; <b style="color:#d97706">&otimes;</b> TL EXIT</p>
@@ -1963,7 +1964,7 @@ function renderLive(m) {
   document.getElementById('live-grid').innerHTML =
     `<div class="cols">${m.instruments.map(d => column(d, m)).join('')}</div>
      <div class="card"><h3>Autopilot position</h3><p class="sub" style="margin-top:8px">${m.autopilot || 'No active Upstox auto-order position open.'}</p></div>
-     <div class="card"><h3>Sideways condor advisory</h3><p class="sub" style="margin-top:8px">${m.condor || 'No sideways condor suggested — active regime check is evaluated above under Sideways-day check.'}</p></div>
+     <div class="card"><h3>Range-bound day &amp; condor advisory</h3><p class="sub" style="margin-top:8px;line-height:1.55">${m.condor || 'No sideways condor suggested — active regime check is evaluated above under Range-bound / Sideways check.'}</p></div>
      <div class="card"><h3>Signal &amp; Telegram Alerts Log</h3>
        <table style="margin-top:6px"><tr><th>Logged</th><th>Index</th><th>Event</th><th>Side</th><th>Ref</th><th>Status</th><th>Details</th><th>Setup</th></tr>
        ${m.alerts.length ? m.alerts.map(a => {
