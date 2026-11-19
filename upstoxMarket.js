@@ -1473,7 +1473,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
     const stockMap = new Map(stocks.map(s => [s.symbol, s]));
     const nearOrderBlocks = await scanNifty50OrderBlocks({
         timeframe: '5m',
-        maxDistPct: 0.25,
+        maxDistPct: 0.5,
         token,
         stockMap
     }).catch(() => null);
@@ -2593,8 +2593,14 @@ function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance
     if (ob.side === 'BULL' && position === 'BELOW') return null;
     if (ob.side === 'BEAR' && position === 'ABOVE') return null;
 
-    const zoneHeight = Math.max(price * 0.001, ob.top - ob.bot);
-    const slBuffer = Math.max(0.05, Math.min(zoneHeight * 0.15, (atr || zoneHeight) * 0.15));
+    const tf = ctx.tf || '5m';
+    const minRiskPct = tf === '1h' ? 0.0075 : (tf === '15m' ? 0.0050 : 0.0035);
+    const atrMult = tf === '1h' ? 1.4 : (tf === '15m' ? 1.3 : 1.2);
+    const minTgtPct = tf === '1h' ? 0.0160 : (tf === '15m' ? 0.0110 : 0.0075);
+
+    const zoneHeight = Math.max(price * 0.0015, ob.top - ob.bot);
+    const slBuffer = Math.max(0.10, Math.min(zoneHeight * 0.2, (atr || zoneHeight) * 0.25));
+    const minRiskPts = Math.max(price * minRiskPct, (atr || 0) * atrMult);
 
     let entry;
     let sl;
@@ -2603,48 +2609,47 @@ function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance
 
     if (ob.side === 'BULL') {
         entry = r2(inside ? price : ob.top);
-        sl = r2(ob.bot - slBuffer);
-        risk = Math.max(price * 0.0015, entry - sl);
+        const rawSl = ob.bot - slBuffer;
+        sl = r2(Math.min(rawSl, entry - minRiskPts));
+        risk = Math.max(minRiskPts, entry - sl);
+        const minTargetPts = Math.max(entry * minTgtPct, risk * 1.8);
 
         const overhead = [
-            ...(swingHighs || []).filter(s => s.price > entry + risk * 1.4).map(s => s.price),
-            ...(resistance && resistance > entry + risk * 1.4 ? [resistance] : [])
+            ...(swingHighs || []).filter(s => s.price >= entry + minTargetPts).map(s => s.price),
+            ...(resistance && resistance >= entry + minTargetPts ? [resistance] : [])
         ].sort((a, b) => a - b);
 
-        // Reject if an immediate closer ceiling caps reward below 1.3R
-        const immediateCap = [
-            ...(swingHighs || []).filter(s => s.price > entry).map(s => s.price),
-            ...(resistance && resistance > entry ? [resistance] : [])
-        ].sort((a, b) => a - b)[0];
-
-        if (immediateCap && (immediateCap - entry) < risk * 1.3 && overhead.length === 0) {
+        // Only reject if major resistance caps reward well below 1.25R
+        if (resistance && resistance > entry && (resistance - entry) < risk * 1.25 && overhead.length === 0) {
             return null;
         }
-        target = r2(overhead.length ? Math.min(overhead[0], entry + risk * 3.0) : (entry + risk * 2.0));
+        const defaultTarget = entry + Math.max(minTargetPts, risk * 2.2);
+        target = r2(overhead.length ? Math.min(Math.max(overhead[0], entry + minTargetPts), entry + risk * 3.5) : defaultTarget);
     } else {
         entry = r2(inside ? price : ob.bot);
-        sl = r2(ob.top + slBuffer);
-        risk = Math.max(price * 0.0015, sl - entry);
+        const rawSl = ob.top + slBuffer;
+        sl = r2(Math.max(rawSl, entry + minRiskPts));
+        risk = Math.max(minRiskPts, sl - entry);
+        const minTargetPts = Math.max(entry * minTgtPct, risk * 1.8);
 
         const belowTargets = [
-            ...(swingLows || []).filter(s => s.price < entry - risk * 1.4).map(s => s.price),
-            ...(support && support < entry - risk * 1.4 ? [support] : [])
+            ...(swingLows || []).filter(s => s.price <= entry - minTargetPts).map(s => s.price),
+            ...(support && support <= entry - minTargetPts ? [support] : [])
         ].sort((a, b) => b - a);
 
-        const immediateFloor = [
-            ...(swingLows || []).filter(s => s.price < entry).map(s => s.price),
-            ...(support && support < entry ? [support] : [])
-        ].sort((a, b) => b - a)[0];
-
-        if (immediateFloor && (entry - immediateFloor) < risk * 1.3 && belowTargets.length === 0) {
+        if (support && support < entry && (entry - support) < risk * 1.25 && belowTargets.length === 0) {
             return null;
         }
-        target = r2(belowTargets.length ? Math.max(belowTargets[0], entry - risk * 3.0) : (entry - risk * 2.0));
+        const defaultTarget = entry - Math.max(minTargetPts, risk * 2.2);
+        target = r2(belowTargets.length ? Math.max(Math.min(belowTargets[0], entry - minTargetPts), entry - risk * 3.5) : defaultTarget);
     }
 
     const reward = ob.side === 'BULL' ? (target - entry) : (entry - target);
     const rr = r2(reward / Math.max(0.01, risk));
-    if (rr < 1.4) return null;
+    if (rr < 1.5) return null;
+
+    const riskPct = r2((risk / Math.max(0.01, entry)) * 100);
+    const targetPct = r2((reward / Math.max(0.01, entry)) * 100);
 
     return {
         action: ob.side === 'BULL' ? 'BUY' : 'SELL',
@@ -2653,6 +2658,8 @@ function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance
         sl,
         target,
         rr,
+        riskPct,
+        targetPct,
         distPct,
         inside,
         position,
@@ -2777,6 +2784,7 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     const trend1h = computeTrendFromCandles(c1h);
 
     const planCtx = {
+        tf,
         aboveVwap,
         structure: analysis.structure,
         trend: trendTf.dir,
@@ -3012,8 +3020,18 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     }
                 }
 
+                const todayIdx = candles.findIndex(c => c.ymd === lastBar.ymd);
+                const todayBars = todayIdx >= 0 ? candles.slice(todayIdx) : [lastBar];
+                const todayOpen = todayBars[0]?.o || price;
+                const todayHigh = Math.max(...todayBars.map(c => c.h));
+                const todayLow = Math.min(...todayBars.map(c => c.l));
+                const prevCloseCandle = todayIdx > 0 ? candles[todayIdx - 1].c : todayOpen;
+                const gapPct = prevCloseCandle > 0 ? r2(((todayOpen - prevCloseCandle) / prevCloseCandle) * 100) : 0;
+                const dayRangePct = todayOpen > 0 ? r2(((todayHigh - todayLow) / todayOpen) * 100) : 0;
+
                 const aboveVwap = lastVwap != null ? price >= lastVwap : null;
                 const baseCtx = {
+                    tf,
                     aboveVwap,
                     structure: analysis.structure,
                     trend: trendTf.dir,
@@ -3034,7 +3052,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                         baseCtx
                     );
                     if (!plan || plan.distPct > 1.0) continue;
-                    const rankScore = plan.distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+                    const rankScore = plan.distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
                     if (!best || rankScore < best.rankScore) {
                         best = { ob, plan, rankScore };
                     }
@@ -3048,6 +3066,8 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     sector: st.sector,
                     price,
                     changePct,
+                    gapPct,
+                    dayRangePct,
                     action: plan.action,
                     obSide: ob.side,
                     bot: ob.bot,
@@ -3056,6 +3076,8 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     sl: plan.sl,
                     target: plan.target,
                     rr: plan.rr,
+                    riskPct: plan.riskPct,
+                    targetPct: plan.targetPct,
                     opportunity: plan.opportunity,
                     status: ob.status.toUpperCase(),
                     tests: ob.tests,

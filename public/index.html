@@ -1398,8 +1398,8 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
         ${tp ? `
           <div class="xr-plan-grid">
             <div class="xr-plan-box"><small>Entry</small><b style="color:#92400e">${fmt2(tp.entry)}</b></div>
-            <div class="xr-plan-box"><small>Stop Loss</small><b class="dnt">${fmt2(tp.sl)}</b></div>
-            <div class="xr-plan-box"><small>Target</small><b class="upt">${fmt2(tp.target)}</b></div>
+            <div class="xr-plan-box"><small>Stop Loss${tp.riskPct != null ? ` (-${tp.riskPct}%)` : ''}</small><b class="dnt">${fmt2(tp.sl)}</b></div>
+            <div class="xr-plan-box"><small>Target${tp.targetPct != null ? ` (+${tp.targetPct}%)` : ''}</small><b class="upt">${fmt2(tp.target)}</b></div>
             <div class="xr-plan-box"><small>Reward Ratio</small><b class="upt">1 : ${tp.rr}</b></div>
           </div>
           <div class="kv-row"><span class="sub">OB Zone (${escHtml(tp.status)})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
@@ -1422,7 +1422,7 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
   </div>`;
 }
 
-let xrayObRadarState = { tf: '5m', maxDist: 0.25, filter: 'ALL', search: '', sector: '', data: null, loading: false };
+let xrayObRadarState = { tf: '5m', maxDist: 0.5, minTargetPct: 0, filter: 'ALL', search: '', sector: '', data: null, loading: false };
 
 async function openXrayStockChart(symbol, force = false, tfOverride = null) {
   if (!symbol) return;
@@ -1462,15 +1462,19 @@ function closeXrayStockChart() {
 
 function getFilteredXraySetups(scan) {
   const f = xrayObRadarState.filter || 'ALL';
-  const maxD = Number(xrayObRadarState.maxDist) || 0.25;
+  const maxD = Number(xrayObRadarState.maxDist) || 0.5;
+  const minTgt = Number(xrayObRadarState.minTargetPct) || 0;
   const q = (xrayObRadarState.search || '').trim().toUpperCase();
   const sec = (xrayObRadarState.sector || '').trim();
   return (scan?.items || []).filter(s => {
     if (s.distPct > maxD) return false;
+    const tgtPct = s.targetPct != null ? Number(s.targetPct) : (s.entry ? Math.abs((s.target - s.entry) / s.entry * 100) : 0);
+    if (minTgt > 0 && tgtPct < minTgt) return false;
     if (f === 'BULL' && s.obSide !== 'BULL') return false;
     if (f === 'BEAR' && s.obSide !== 'BEAR') return false;
     if (f === 'INSIDE' && !s.inside) return false;
     if (f === 'FRESH' && s.status !== 'FRESH') return false;
+    if (f === 'GAP' && !(Math.abs(Number(s.gapPct || 0)) >= 0.4 || Number(s.dayRangePct || 0) >= 1.5)) return false;
     if (sec && !(s.sector === sec || (sec === 'FMCG' && s.sector === 'FMCG & Consumer'))) return false;
     if (q && !s.symbol.toUpperCase().includes(q) && !String(s.sector || '').toUpperCase().includes(q)) return false;
     return true;
@@ -1484,11 +1488,11 @@ function renderXrayObRadarInner(scan) {
   if (!scan || !Array.isArray(scan.items)) {
     return '<p class="sub" style="margin-top:12px">Order Block trade scanner unavailable right now. Click <b>Rescan</b> to retry.</p>';
   }
-  const maxD = Number(xrayObRadarState.maxDist) || 0.25;
+  const maxD = Number(xrayObRadarState.maxDist) || 0.5;
   const rows = getFilteredXraySetups(scan);
 
   if (!rows.length) {
-    const resetBtn = (xrayObRadarState.filter !== 'ALL' || xrayObRadarState.search || xrayObRadarState.sector)
+    const resetBtn = (xrayObRadarState.filter !== 'ALL' || xrayObRadarState.minTargetPct > 0 || xrayObRadarState.search || xrayObRadarState.sector)
       ? ` <button type="button" class="btn" style="padding:3px 9px;font-size:11px;margin-left:6px" onclick="resetXrayObFilters()">Clear Filters</button>`
       : '';
     return `<div style="margin-top:12px;padding:16px;text-align:center;background:var(--bg);border-radius:8px;border:1px solid var(--bd)">
@@ -1499,10 +1503,10 @@ function renderXrayObRadarInner(scan) {
   return `<div style="max-height:460px;overflow:auto;margin-top:10px;border:1px solid var(--bd);border-radius:8px"><table>
     <tr style="position:sticky;top:0;background:var(--card);z-index:1">
       <th>Stock</th>
-      <th>Price / Chg</th>
+      <th>Price / Gap</th>
       <th>Setup</th>
       <th>OB Zone</th>
-      <th>Entry &middot; SL &middot; Target</th>
+      <th>Entry &middot; SL &middot; Target (Room)</th>
       <th>R:R</th>
       <th>VWAP</th>
       <th></th>
@@ -1517,12 +1521,18 @@ function renderXrayObRadarInner(scan) {
         ? '<span class="sub">-</span>'
         : `<span class="${s.aboveVwap ? 'upt' : 'dnt'}" style="font-weight:600">${s.aboveVwap ? 'Above' : 'Below'}</span>`;
       const trendSub = [s.structure, s.trend15m ? `15m ${s.trend15m}` : ''].filter(Boolean).join(' · ');
+      const tgtPct = s.targetPct != null ? Number(s.targetPct).toFixed(2) : (s.entry ? Math.abs((s.target - s.entry) / s.entry * 100).toFixed(2) : '-');
+      const slPct = s.riskPct != null ? Number(s.riskPct).toFixed(2) : (s.entry ? Math.abs((s.entry - s.sl) / s.entry * 100).toFixed(2) : '-');
+      const gapVal = s.gapPct != null ? Number(s.gapPct) : null;
+      const gapBadge = gapVal != null && Math.abs(gapVal) >= 0.4
+        ? ` &middot; <b class="${gapVal >= 0 ? 'upt' : 'dnt'}">Gap ${gapVal > 0 ? '+' : ''}${gapVal.toFixed(2)}%</b>`
+        : (s.dayRangePct ? ` &middot; Rng ${Number(s.dayRangePct).toFixed(1)}%` : '');
       return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}', false, '${escHtml(scan.timeframe)}')" title="Click to open ${escHtml(s.symbol)} clean chart">
         <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small>${escHtml(s.sector)}</small></td>
-        <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small></td>
+        <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small><small>${gapBadge}</small></td>
         <td><span class="xr-action ${isBuy ? 'upt' : 'dnt'}">${isBuy ? 'BUY · BULL OB' : 'SELL · BEAR OB'}</span><div style="margin-top:2px">${distLabel}</div></td>
         <td class="num"><b>${fmt2(s.bot)}–${fmt2(s.top)}</b><br><small>${escHtml(s.status)}${s.hasFvg ? ' · <b style="color:#d97706">+FVG</b>' : ''}</small></td>
-        <td class="num"><small>Ent <b>${fmt2(s.entry)}</b> &middot; SL <b class="dnt">${fmt2(s.sl)}</b><br>Tgt <b class="upt">${fmt2(s.target)}</b></small></td>
+        <td class="num"><small>Ent <b>${fmt2(s.entry)}</b> &middot; SL <b class="dnt">${fmt2(s.sl)}</b> (-${slPct}%)<br>Tgt <b class="upt">${fmt2(s.target)}</b> (<b>+${tgtPct}%</b>)</small></td>
         <td class="num"><b class="upt">1:${s.rr}</b></td>
         <td>${vwapCell}${trendSub ? `<br><small class="sub">${escHtml(trendSub)}</small>` : ''}</td>
         <td style="text-align:right"><small class="stock-link">Chart &rarr;</small></td>
@@ -1561,10 +1571,16 @@ function toggleXraySectorFilter(matchSector) {
 
 function resetXrayObFilters() {
   xrayObRadarState.filter = 'ALL';
+  xrayObRadarState.minTargetPct = 0;
   xrayObRadarState.search = '';
   xrayObRadarState.sector = '';
   updateXrayObRadarCard();
   document.querySelectorAll('#xray-body .xr-sec-tile').forEach(el => el.classList.remove('active-sec'));
+}
+
+function setXrayMinTargetPct(val) {
+  xrayObRadarState.minTargetPct = Number(val) || 0;
+  updateXrayObRadarCard();
 }
 
 async function setXrayObRadarParams(tf, maxDist, filter, force = false) {
@@ -1601,6 +1617,7 @@ function buildXrayObRadarCardHtml(scan) {
 
   const filters = [
     { key: 'ALL', label: 'All Setups' },
+    { key: 'GAP', label: 'Gap / Wide Room' },
     { key: 'INSIDE', label: 'At Entry' },
     { key: 'BULL', label: 'Buy (Bull OB)' },
     { key: 'BEAR', label: 'Sell (Bear OB)' },
@@ -1616,8 +1633,11 @@ function buildXrayObRadarCardHtml(scan) {
         <div class="tf-group">
           ${['5m', '15m', '1h'].map(tf => `<button type="button" class="tf-btn ${xrayObRadarState.tf === tf ? 'active' : ''}" onclick="setXrayObRadarParams('${tf}', null, null)">${tf}</button>`).join('')}
         </div>
-        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayObRadarParams(null, this.value, null)">
-          ${[0.15, 0.25, 0.35, 0.5].map(v => `<option value="${v}" ${Number(xrayObRadarState.maxDist) === v ? 'selected' : ''}>Within ${v}%</option>`).join('')}
+        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayObRadarParams(null, this.value, null)" title="Max distance from OB entry">
+          ${[0.25, 0.5, 0.75, 1.0].map(v => `<option value="${v}" ${Number(xrayObRadarState.maxDist) === v ? 'selected' : ''}>Within ${v}%</option>`).join('')}
+        </select>
+        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayMinTargetPct(this.value)" title="Minimum target room to sit on trade">
+          ${[{v:0,l:'Any Target'},{v:0.8,l:'Tgt >= 0.8%'},{v:1.0,l:'Tgt >= 1.0%'},{v:1.5,l:'Tgt >= 1.5%'}].map(o => `<option value="${o.v}" ${Number(xrayObRadarState.minTargetPct) === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}
         </select>
         <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="setXrayObRadarParams(null, null, null, true)">Rescan</button>
       </div>
@@ -1637,7 +1657,7 @@ function renderXRay(m) {
     ? new Date(m.fetchedAt).toLocaleTimeString('en-GB', {timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false}) + ' IST'
     : (m.asOf || '');
   const x = m.xray;
-  if (x && x.nearOrderBlocks && xrayObRadarState.tf === '5m' && Number(xrayObRadarState.maxDist) <= 0.25 && !xrayObRadarState.loading) {
+  if (x && x.nearOrderBlocks && xrayObRadarState.tf === '5m' && Number(xrayObRadarState.maxDist) <= 0.5 && !xrayObRadarState.loading) {
     xrayObRadarState.data = x.nearOrderBlocks;
   }
   const obScan = xrayObRadarState.data || x?.nearOrderBlocks;
@@ -1655,7 +1675,7 @@ function renderXRay(m) {
     const maxSecAbs = Math.max(0.5, ...secs.map(s => Math.abs(s.changePct || 0)));
     const topSec = secs[0];
     const botSec = secs.length ? secs[secs.length - 1] : null;
-    const setupsAll = (obScan?.items || []).filter(s => s.distPct <= (Number(xrayObRadarState.maxDist) || 0.25));
+    const setupsAll = (obScan?.items || []).filter(s => s.distPct <= (Number(xrayObRadarState.maxDist) || 0.5));
     const entryNowCnt = setupsAll.filter(s => s.inside).length;
     const buySetups = setupsAll.filter(s => s.action === 'BUY').length;
     const sellSetups = setupsAll.filter(s => s.action === 'SELL').length;
@@ -1668,7 +1688,7 @@ function renderXRay(m) {
       <div class="xr-pulse-tile">
         <div class="xr-pulse-lbl">OB Trade Setups (${escHtml(xrayObRadarState.tf)})</div>
         <div class="xr-pulse-val">${setupsAll.length} Ready <small style="font-weight:600;color:var(--up)">(${entryNowCnt} at entry)</small></div>
-        <div class="xr-pulse-sub"><b class="upt">${buySetups} Buy</b> &middot; <b class="dnt">${sellSetups} Sell</b> within ${Number(xrayObRadarState.maxDist) || 0.25}%</div>
+        <div class="xr-pulse-sub"><b class="upt">${buySetups} Buy</b> &middot; <b class="dnt">${sellSetups} Sell</b> within ${Number(xrayObRadarState.maxDist) || 0.5}%</div>
       </div>
       <div class="xr-pulse-tile">
         <div class="xr-pulse-lbl">NIFTY 50 Market Mood</div>
