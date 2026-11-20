@@ -409,8 +409,13 @@ function computeHourlyTrend(candles15m) {
     const last = closes[closes.length - 1];
     const prev = closes[closes.length - 2];
     const sma5 = closes.slice(-5).reduce((a, b) => a + b, 0) / 5;
-    if (last > sma5 && last > prev) return { dir: 'BULL', note: `1-hour close (${r2(last)}) above 5-bar SMA (${r2(sma5)})` };
-    if (last < sma5 && last < prev) return { dir: 'BEAR', note: `1-hour close (${r2(last)}) below 5-bar SMA (${r2(sma5)})` };
+    const sma5Prev = closes.length >= 6 ? closes.slice(-6, -1).reduce((a, b) => a + b, 0) / 5 : sma5;
+    if (last > sma5 && (last > prev || (sma5 > sma5Prev && last > sma5 * 1.0005))) {
+        return { dir: 'BULL', note: `1-hour close (${r2(last)}) above rising 5-bar SMA (${r2(sma5)})` };
+    }
+    if (last < sma5 && (last < prev || (sma5 < sma5Prev && last < sma5 * 0.9995))) {
+        return { dir: 'BEAR', note: `1-hour close (${r2(last)}) below falling 5-bar SMA (${r2(sma5)})` };
+    }
     return { dir: 'NEUTRAL', note: `1-hour close (${r2(last)}) vs 5-bar SMA (${r2(sma5)}) mixed/flat` };
 }
 
@@ -1100,6 +1105,9 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const insideS1R1 = spotPrice >= s1 && spotPrice <= r1;
     const trendBreak = (spotPrice > cprTop && supertrend === 'UP' && hmaSlope === 'UP')
         || (spotPrice < cprBot && supertrend === 'DOWN' && hmaSlope === 'DOWN');
+    const bullBreakout = spotPrice > cprTop && spotPrice > prevDay.h && supertrend === 'UP';
+    const bearBreakout = spotPrice < cprBot && spotPrice < prevDay.l && supertrend === 'DOWN';
+    const strongDirBreak = bullBreakout || bearBreakout;
 
     const checks = [
         {
@@ -1115,9 +1123,11 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
                 : `Unavailable (${optRes.error})`
         },
         {
-            pass: adx < 22,
-            name: 'Weak trend (ADX < 22)',
-            note: `ADX ${adx}`
+            pass: adx < 22 && !strongDirBreak,
+            name: 'Weak trend (ADX < 22, no breakout)',
+            note: strongDirBreak
+                ? `ADX ${adx} LAGGING — active ${bullBreakout ? 'bullish' : 'bearish'} breakout above/below CPR & Prev H/L`
+                : `ADX ${adx}`
         },
         {
             pass: insideS1R1,
@@ -1130,19 +1140,19 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
             note: `gap ${Math.abs(gapPct).toFixed(2)}%`
         },
         {
-            pass: Math.abs(hmaMove) <= inst.flatLimit,
+            pass: Math.abs(hmaMove) <= inst.flatLimit && !strongDirBreak,
             name: 'HMA flat',
-            note: `HMA moved ${Math.round(Math.abs(hmaMove))} pts in 4 bars (limit ${inst.flatLimit})`
+            note: `HMA moved ${Math.round(Math.abs(hmaMove))} pts in 4 bars (limit ${inst.flatLimit})${strongDirBreak ? ' · breakout active' : ''}`
         },
         {
-            pass: todayRange < prevRange,
+            pass: todayRange < prevRange && !strongDirBreak,
             name: 'Small range so far',
-            note: `today ${todayRange} pts vs yesterday ${prevRange}`
+            note: `today ${todayRange} pts vs yesterday ${prevRange}${strongDirBreak ? ' (trend breakout vs Prev H/L)' : ''}`
         }
     ];
     const score = checks.filter(c => c.pass).length;
-    const breakoutRisk = insideS1R1 && (negGex || narrowCpr || trendBreak);
-    const isTrueRangeBound = score >= 5 && insideS1R1 && !negGex && (!narrowCpr || (adx < 20 && !trendBreak));
+    const breakoutRisk = insideS1R1 && !strongDirBreak && (negGex || narrowCpr || trendBreak);
+    const isTrueRangeBound = score >= 5 && insideS1R1 && !negGex && !strongDirBreak && (!narrowCpr || (adx < 20 && !trendBreak));
 
     let swLabel = 'MIXED / CHOPPY';
     let swTone = 'mid';
@@ -1154,10 +1164,17 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
             ? ` · Option walls ${Math.round(chain.putWall).toLocaleString('en-IN')}–${Math.round(chain.callWall).toLocaleString('en-IN')}`
             : '';
         swSummary = `True range-bound corridor ${Math.round(s1).toLocaleString('en-IN')}–${Math.round(r1).toLocaleString('en-IN')}${wallTxt} (GEX supportive).`;
-    } else if (!insideS1R1 || (trendBreak && adx >= 22) || score <= 2) {
-        swLabel = 'TRENDING / BREAKOUT';
+    } else if (!insideS1R1 || strongDirBreak || (trendBreak && adx >= 22) || score <= 2) {
+        swLabel = bullBreakout ? 'BULLISH BREAKOUT — DO NOT SELL CALLS'
+            : bearBreakout ? 'BEARISH BREAKOUT — DO NOT SELL PUTS'
+            : 'TRENDING / BREAKOUT';
         swTone = 'dn';
-        swSummary = `${!insideS1R1 ? 'Price broke outside S1–R1' : 'Active trend breakout'} (ADX ${adx}${negGex ? `, GEX ${optRes.gexCr} Cr` : ''}) — do NOT fade with naked option shorts.`;
+        const breakReason = !insideS1R1
+            ? 'Price broke outside S1–R1'
+            : strongDirBreak
+                ? `Price broke ${bullBreakout ? 'above CPR Top & Prev High' : 'below CPR Bottom & Prev Low'} with Supertrend ${supertrend}`
+                : 'Active trend breakout';
+        swSummary = `${breakReason} (ADX ${adx}${strongDirBreak && adx < 22 ? ' lagging' : ''}${negGex ? `, GEX ${optRes.gexCr} Cr` : ''}) — do NOT fade with naked option shorts.`;
     } else if (breakoutRisk) {
         swLabel = 'BREAKOUT RISK — NOT SAFE SIDEWAYS';
         swTone = 'dn';
@@ -1236,16 +1253,53 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const trendVote = (supertrend === 'UP' && hmaSlope === 'UP' && spotPrice > cprTop) ? 'BULL'
         : (supertrend === 'DOWN' && hmaSlope === 'DOWN' && spotPrice < cprBot) ? 'BEAR'
             : 'NEUTRAL';
-    const gapVote = gapPct > 0.4 ? 'BULL' : gapPct < -0.4 ? 'BEAR' : 'NEUTRAL';
-    const oiVote = !optRes.ok ? 'NEUTRAL'
-        : (chain.pcrAtm >= 1.15 ? 'BULL' : chain.pcrAtm <= 0.85 ? 'BEAR' : 'NEUTRAL');
+    const gapStr = `${gapPct > 0 ? '+' : ''}${gapPct.toFixed(2)}%`;
+    let gapVote = 'NEUTRAL';
+    let gapNote = `opening gap ${gapStr}`;
+    if (gapPct < -0.4) {
+        if (spotPrice > prevDay.h) {
+            gapVote = 'BULL';
+            gapNote = `opening gap ${gapStr} filled & broke above Prev High (${Math.round(prevDay.h)})`;
+        } else if (spotPrice >= prevClose) {
+            gapVote = 'NEUTRAL';
+            gapNote = `opening gap ${gapStr} filled (reclaimed prev close ${Math.round(prevClose)})`;
+        } else {
+            gapVote = 'BEAR';
+            gapNote = `unfilled opening gap ${gapStr}`;
+        }
+    } else if (gapPct > 0.4) {
+        if (spotPrice < prevDay.l) {
+            gapVote = 'BEAR';
+            gapNote = `opening gap ${gapStr} failed & broke below Prev Low (${Math.round(prevDay.l)})`;
+        } else if (spotPrice <= prevClose) {
+            gapVote = 'NEUTRAL';
+            gapNote = `opening gap ${gapStr} filled (lost prev close ${Math.round(prevClose)})`;
+        } else {
+            gapVote = 'BULL';
+            gapNote = `unfilled opening gap ${gapStr}`;
+        }
+    }
+
+    let oiVote = 'NEUTRAL';
+    let oiNote = `Option chain unavailable (${optRes.error})`;
+    if (optRes.ok) {
+        const atmPcr = Number(chain.pcrAtm);
+        const totPcr = Number(chain.pcrTotal);
+        if (atmPcr >= 1.15 && totPcr >= 0.95) {
+            oiVote = 'BULL';
+        } else if (atmPcr <= 0.85 && totPcr <= 1.05) {
+            oiVote = 'BEAR';
+        }
+        const mixedPcr = (atmPcr <= 0.85 && totPcr >= 1.15) || (atmPcr >= 1.15 && totPcr <= 0.85);
+        oiNote = `PCR ${chain.pcrAtm} (ATM) / ${chain.pcrTotal} (total)${mixedPcr ? ' [mixed: watch short-covering]' : ''}; Put wall ${chain.putWall}, Call wall ${chain.callWall}`;
+    }
     const levelVote = spotPrice > prevDay.h ? 'BULL' : spotPrice < prevDay.l ? 'BEAR' : 'NEUTRAL';
 
     const agents = [
         { name: 'Trend', vote: trendVote, note: `Supertrend ${supertrend}, HMA ${hmaSlope}, ${spotPrice > cprTop ? 'above CPR' : spotPrice < cprBot ? 'below CPR' : 'inside CPR'}` },
         { name: '1-hour', vote: hourly.dir, note: hourly.note },
-        { name: 'Gap', vote: gapVote, note: `opening gap ${gapPct > 0 ? '+' : ''}${gapPct.toFixed(2)}%` },
-        { name: 'OI / PCR', vote: oiVote, note: optRes.ok ? `PCR ${chain.pcrAtm} (ATM) / ${chain.pcrTotal} (total); Put wall ${chain.putWall}, Call wall ${chain.callWall}` : `Option chain unavailable (${optRes.error})` },
+        { name: 'Gap', vote: gapVote, note: gapNote },
+        { name: 'OI / PCR', vote: oiVote, note: oiNote },
         { name: 'Range', vote: levelVote, note: `Spot ${r2(spotPrice)} vs Prev H/L (${Math.round(prevDay.h)} / ${Math.round(prevDay.l)})` }
     ];
 

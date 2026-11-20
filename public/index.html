@@ -950,7 +950,7 @@ function column(d, m) {
     <div class="sc"><h4>Range-bound / Sideways check <span class="badge ${sw.tone || (sw.isRangeBound ? 'up' : 'mid')}">${escHtml(sw.label)} (${sw.score}/${sw.total})</span></h4>
       ${sw.summary ? `<p style="font-size:12px;margin:4px 0 6px;font-weight:600" class="${sw.tone === 'up' ? 'upt' : sw.tone === 'dn' ? 'dnt' : 'midt'}">${escHtml(sw.summary)}</p>` : ''}
       <ul class="chk">${sw.checks.map(k => `<li><b class="${k.pass ? 'upt' : 'dnt'}">${k.pass ? 'PASS' : 'FAIL'}</b> ${escHtml(k.name)} <small>- ${escHtml(k.note)}</small></li>`).join('')}</ul>
-      <p class="note">True Range-Bound Day requires &ge; 5/7 checks passing, Positive GEX, Wide CPR, and spot inside S1&ndash;R1. Narrow CPR or Negative GEX triggers a Breakout Risk warning.</p></div>
+      <p class="note">True Range-Bound Day requires &ge; 5/7 checks passing, Positive GEX, Wide CPR, spot inside S1&ndash;R1, and no active CPR + Prev H/L breakout. Active breakouts or Negative GEX disable sideways comfort.</p></div>
 
     <div class="sc" style="padding:6px">${priceChart(d)}</div>
     <p class="legend">last 3 days, each day with its own levels: red dashed = resistance, green dashed = support, amber dotted = previous-day high/low, grey = pivot, shaded = CPR band &middot; <b style="color:var(--hma)">&mdash;</b> HMA(21) &middot; Supertrend line green up / red down &middot; trendlines: <b class="upt">&mdash;</b> support / <b class="dnt">&mdash;</b> resistance (ring = break) &middot; &#9650; SELL PE &#9660; SELL CE &middot; <b style="color:#d97706">&otimes;</b> TL EXIT</p>
