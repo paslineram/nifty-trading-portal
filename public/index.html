@@ -445,6 +445,25 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 </div>
 
 <script>
+// Attach the session token to every API call; a 401 sends the user back to the login screen.
+(function () {
+  const origFetch = window.fetch.bind(window);
+  window.fetch = async function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const isApi = url.startsWith('/api/');
+    const isAuthCall = url.startsWith('/api/login') || url.startsWith('/api/logout');
+    if (isApi && !isAuthCall) {
+      let tok = ''; try { tok = localStorage.getItem('paslinToken') || ''; } catch (_) {}
+      init = Object.assign({}, init, { headers: Object.assign({}, init && init.headers, tok ? { Authorization: 'Bearer ' + tok } : {}) });
+    }
+    const resp = await origFetch(input, init);
+    if (resp.status === 401 && isApi && !isAuthCall) {
+      try { localStorage.removeItem('paslinToken'); localStorage.removeItem('paslinAuth'); } catch (_) {}
+      if (typeof handleLogout === 'function') handleLogout();
+    }
+    return resp;
+  };
+})();
 const fmt = n => Number(n).toLocaleString('en-IN', {maximumFractionDigits: 2});
 const fmt2 = n => Number(n).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 const sgn = n => (n > 0 ? '+' : '') + fmt(n);
@@ -734,7 +753,7 @@ async function handleLogin(e) {
       throw new Error(data?.message || `Login failed (HTTP ${r.status}). Refresh the preview and try again.`);
     }
     authEpoch += 1;
-    try { localStorage.setItem('paslinAuth', '1'); } catch (_) {}
+    try { localStorage.setItem('paslinAuth', '1'); localStorage.setItem('paslinToken', data.token || ''); } catch (_) {}
     document.getElementById('login-pass').value = '';
     showPortal();
   } catch (ex) {
@@ -770,7 +789,7 @@ function handleLogout() {
   liveInFlight = false;
   pendingForcedLive = false;
   fetch('/api/logout', { method: 'POST' }).catch(() => {});
-  try { localStorage.removeItem('paslinAuth'); } catch (_) {}
+  try { localStorage.removeItem('paslinAuth'); localStorage.removeItem('paslinToken'); } catch (_) {}
   clearDraftStore();
   dirtySettingsFields.clear();
   settingsHydratedFromServer = false;
@@ -784,7 +803,7 @@ function handleLogout() {
 (function restorePortalAuth() {
   scrubBrowserSecretStores();
   try {
-    if (localStorage.getItem('paslinAuth') === '1') showPortal();
+    if (localStorage.getItem('paslinAuth') === '1' && localStorage.getItem('paslinToken')) showPortal();
   } catch (_) {}
 })();
 

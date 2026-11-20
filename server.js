@@ -255,6 +255,39 @@ let strategyJournalCache = { ts: 0, instrument: '', data: null };
 
 // Live market snapshot is provided by ./upstoxMarket.js using Upstox v2/v3 APIs.
 
+// ---- Session auth: signed, expiring token. Every /api route except login/logout requires it. ----
+const SESSION_TTL_MS = 7 * 24 * 3600 * 1000;
+function sessionSecret() {
+    const explicit = (process.env.SESSION_SECRET || '').trim();
+    if (explicit) return explicit;
+    // Stable fallback derived from the admin password so sessions survive restarts.
+    return crypto.createHash('sha256').update('portal-session|' + (process.env.ADMIN_PASS || 'nifty2026').trim()).digest('hex');
+}
+function signSession(user) {
+    const body = Buffer.from(JSON.stringify({ u: user, exp: Date.now() + SESSION_TTL_MS })).toString('base64url');
+    const sig = crypto.createHmac('sha256', sessionSecret()).update(body).digest('base64url');
+    return body + '.' + sig;
+}
+function verifySession(token) {
+    try {
+        const [body, sig] = String(token || '').split('.');
+        if (!body || !sig) return false;
+        const want = crypto.createHmac('sha256', sessionSecret()).update(body).digest('base64url');
+        const a = Buffer.from(sig), b = Buffer.from(want);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
+        const { exp } = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+        return typeof exp === 'number' && exp > Date.now();
+    } catch (_) { return false; }
+}
+function requireAuth(req, res, next) {
+    if (req.path === '/login' || req.path === '/logout') return next();
+    const h = req.get('authorization') || '';
+    const token = h.startsWith('Bearer ') ? h.slice(7) : (req.get('x-session-token') || '');
+    if (verifySession(token)) return next();
+    res.status(401).json({ success: false, message: 'Login required' });
+}
+app.use('/api', requireAuth);
+
 app.post('/api/login', (req, res) => {
     const ip = getClientIp(req);
     const limit = checkLoginRateLimit(ip);
@@ -272,7 +305,7 @@ app.post('/api/login', (req, res) => {
     const passOk = safeEqualStr(String(password || '').trim(), adminPass);
     if (userOk && passOk) {
         loginAttempts.delete(ip);
-        res.json({ success: true });
+        res.json({ success: true, token: signSession(adminUser) });
     } else {
         recordLoginFailure(ip);
         res.status(401).json({ success: false, message: 'Invalid credentials' });
