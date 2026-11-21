@@ -224,7 +224,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
       <form class="f" style="margin:10px 0 4px" onsubmit="sendCustomUpstoxOrder(event)">
         <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Exchange Lot)</option><option value="SENSEX">SENSEX (Exchange Lot)</option></select></label>
         <label>Signal Side <select id="upx-ord-side"><option value="SELL PE">SELL PE (Bullish)</option><option value="SELL CE">SELL CE (Bearish)</option><option value="BUY CE">BUY CE</option><option value="BUY PE">BUY PE</option></select></label>
-        <label>Execution Mode <select id="upx-ord-mode" onchange="syncOrderModeBadge()"><option value="DRY_RUN">DRY_RUN (Contract + Margin Check)</option><option value="SANDBOX">SANDBOX (api-sandbox.upstox.com)</option><option value="LIVE">LIVE HFT (api-hft.upstox.com)</option></select></label>
+        <label>Execution Mode <select id="upx-ord-mode" onchange="syncOrderModeBadge(true)"><option value="DRY_RUN">DRY_RUN (Contract + Margin Check)</option><option value="SANDBOX">SANDBOX (api-sandbox.upstox.com)</option><option value="LIVE">LIVE HFT (api-hft.upstox.com)</option></select></label>
         <label>Product <select id="upx-ord-product"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
         <label>Order Type <select id="upx-ord-type"><option value="MARKET">MARKET</option><option value="LIMIT">LIMIT (LTP)</option></select></label>
         <label>Lots <input type="number" id="upx-ord-lots" value="1" min="1" max="50"></label>
@@ -2898,12 +2898,13 @@ async function clearTelegramLogHistory() {
   }
 }
 
-function syncOrderModeBadge() {
+function syncOrderModeBadge(refreshBook = false) {
   const mode = document.getElementById('upx-ord-mode')?.value || 'DRY_RUN';
   const badge = document.getElementById('upx-ord-badge');
   if (!badge) return;
   badge.className = `badge ${mode === 'LIVE' ? 'dn' : mode === 'SANDBOX' ? 'up' : 'mid'}`;
   badge.textContent = mode === 'LIVE' ? 'LIVE HFT' : mode === 'SANDBOX' ? 'SANDBOX' : 'DRY RUN CHECK';
+  if (refreshBook) loadUpstoxOrders(mode);
 }
 
 function renderOrderLogPreview(log) {
@@ -2968,12 +2969,15 @@ function renderUpstoxOrderPanel(data) {
   }
 
   if (bookEl) {
+    const envTitle = ob?.environment === 'SANDBOX'
+      ? 'Upstox Sandbox Order Book (Today)'
+      : 'Upstox Broker Order Book (Today)';
     if (!ob || !ob.available) {
-      bookEl.innerHTML = `<h4 style="margin:6px 0">Upstox Broker Order Book (Today)</h4><p class="sub">${escHtml(ob?.reason || 'Order book unavailable.')}</p>`;
+      bookEl.innerHTML = `<h4 style="margin:6px 0">${envTitle}</h4><p class="sub">${escHtml(ob?.reason || 'Order book unavailable.')}</p>`;
     } else if (!ob.orders.length) {
-      bookEl.innerHTML = '<h4 style="margin:6px 0">Upstox Broker Order Book (Today)</h4><p class="sub">Connected to Upstox — 0 broker orders in today\'s order book.</p>';
+      bookEl.innerHTML = `<h4 style="margin:6px 0">${envTitle}</h4><p class="sub">Connected to Upstox (${escHtml(ob.environment || 'LIVE')}) — 0 orders in today's order book.</p>`;
     } else {
-      bookEl.innerHTML = `<h4 style="margin:6px 0">Upstox Broker Order Book (Today)</h4>
+      bookEl.innerHTML = `<h4 style="margin:6px 0">${envTitle}</h4>
         <table>
           <tr><th>Order ID</th><th>Time</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Type</th><th>Price</th><th>Status</th><th>Message</th></tr>
           ${ob.orders.map(o => {
@@ -2986,9 +2990,11 @@ function renderUpstoxOrderPanel(data) {
 }
 
 let upstoxOrderFormHydrated = false;
-async function loadUpstoxOrders() {
+async function loadUpstoxOrders(modeOverride) {
   try {
-    const r = await fetch('/api/upstox/orders', { cache: 'no-store' });
+    const selectedMode = modeOverride || (upstoxOrderFormHydrated ? document.getElementById('upx-ord-mode')?.value : '');
+    const qs = selectedMode ? `?mode=${encodeURIComponent(selectedMode)}` : '';
+    const r = await fetch(`/api/upstox/orders${qs}`, { cache: 'no-store' });
     if (!r.ok) return;
     const data = await r.json();
     const cfg = data.appConfig || {};

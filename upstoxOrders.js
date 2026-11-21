@@ -415,34 +415,89 @@ async function executeUpstoxOrderSignal(params, config = {}) {
     });
 }
 
-async function fetchUpstoxOrderBook(token) {
+function mapUpstoxOrderRow(o) {
+    return {
+        orderId: o.order_id,
+        time: o.order_timestamp || o.exchange_timestamp || '-',
+        symbol: o.trading_symbol || o.instrument_token || '-',
+        side: o.transaction_type || '-',
+        qty: Number(o.quantity || 0),
+        filledQty: Number(o.filled_quantity || 0),
+        product: o.product || '-',
+        orderType: o.order_type || '-',
+        price: Number(o.average_price || o.price || 0),
+        status: o.status || '-',
+        statusMessage: o.status_message || '',
+        tag: o.tag || ''
+    };
+}
+
+async function fetchUpstoxOrderBook(tokenOrConfig, modeOverride) {
+    const isCfg = tokenOrConfig && typeof tokenOrConfig === 'object';
+    const cfg = isCfg ? tokenOrConfig : { upstoxToken: tokenOrConfig || '' };
+    const mode = String(modeOverride || cfg.upstoxOrderMode || 'DRY_RUN').toUpperCase();
+    const isSandbox = mode === 'SANDBOX';
+    const token = isSandbox ? (cfg.upstoxSandboxToken || cfg.upstoxToken || '') : (cfg.upstoxToken || '');
+    const baseUrl = isSandbox ? 'https://api-sandbox.upstox.com/v2' : UPSTOX_V2;
+    const envLabel = isSandbox ? 'SANDBOX' : 'LIVE';
+
     if (!token) {
-        return { available: false, reason: 'Upstox Access Token not set in Settings', orders: [] };
+        return {
+            available: false,
+            environment: envLabel,
+            reason: isSandbox
+                ? 'Upstox Sandbox Token (or Access Token) not set in Settings'
+                : 'Upstox Access Token not set in Settings',
+            orders: []
+        };
     }
+
     try {
-        const res = await upstoxFetch(`${UPSTOX_V2}/order/retrieve-all`, token);
-        if (!res.ok) {
-            const msg = res.payload?.errors?.[0]?.message || res.payload?.message || `Upstox returned HTTP ${res.status}`;
-            return { available: false, reason: msg, orders: [] };
+        const res = await upstoxFetch(`${baseUrl}/order/retrieve-all`, token);
+        if (res.ok) {
+            const raw = Array.isArray(res.payload?.data) ? res.payload.data : [];
+            const orders = raw.map(mapUpstoxOrderRow);
+            if (orders.length || !isSandbox) {
+                return { available: true, environment: envLabel, reason: null, orders };
+            }
         }
-        const raw = Array.isArray(res.payload?.data) ? res.payload.data : [];
-        const orders = raw.map(o => ({
-            orderId: o.order_id,
-            time: o.order_timestamp || o.exchange_timestamp || '-',
-            symbol: o.trading_symbol || o.instrument_token || '-',
-            side: o.transaction_type || '-',
-            qty: Number(o.quantity || 0),
-            filledQty: Number(o.filled_quantity || 0),
-            product: o.product || '-',
-            orderType: o.order_type || '-',
-            price: Number(o.average_price || o.price || 0),
-            status: o.status || '-',
-            statusMessage: o.status_message || '',
-            tag: o.tag || ''
-        }));
-        return { available: true, reason: null, orders };
+
+        // Sandbox fallback: query /v2/order/details?order_id=... for recent SANDBOX_SENT logs
+        if (isSandbox) {
+            const state = loadOrderState();
+            const sbxIds = [];
+            for (const l of (state.logs || [])) {
+                if (l.mode === 'SANDBOX' && l.orderId && l.orderId !== 'ACCEPTED') {
+                    for (const part of String(l.orderId).split(',')) {
+                        const oid = part.trim();
+                        if (oid && !sbxIds.includes(oid)) sbxIds.push(oid);
+                    }
+                }
+                if (sbxIds.length >= 10) break;
+            }
+            if (sbxIds.length) {
+                const detailResps = await Promise.all(
+                    sbxIds.map(oid =>
+                        upstoxFetch(`${baseUrl}/order/details?order_id=${encodeURIComponent(oid)}`, token)
+                            .catch(() => null)
+                    )
+                );
+                const detailOrders = detailResps
+                    .filter(r => r?.ok && r.payload?.data)
+                    .map(r => mapUpstoxOrderRow(r.payload.data));
+                if (detailOrders.length) {
+                    return { available: true, environment: envLabel, reason: null, orders: detailOrders };
+                }
+            }
+            if (res.ok) {
+                return { available: true, environment: envLabel, reason: null, orders: [] };
+            }
+        }
+
+        const msg = res.payload?.errors?.[0]?.message || res.payload?.message || `Upstox ${envLabel} returned HTTP ${res.status}`;
+        return { available: false, environment: envLabel, reason: msg, orders: [] };
     } catch (err) {
-        return { available: false, reason: err?.message || 'Could not fetch Upstox order book', orders: [] };
+        return { available: false, environment: envLabel, reason: err?.message || `Could not fetch Upstox ${envLabel} order book`, orders: [] };
     }
 }
 

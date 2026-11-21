@@ -919,7 +919,10 @@ app.delete('/api/telegram/logs', async (req, res) => {
 
 app.get('/api/upstox/orders', async (req, res) => {
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-    const orderBook = await fetchUpstoxOrderBook(appConfig.upstoxToken);
+    const reqMode = ['DRY_RUN', 'SANDBOX', 'LIVE'].includes(String(req.query.mode || '').toUpperCase())
+        ? String(req.query.mode).toUpperCase()
+        : appConfig.upstoxOrderMode;
+    const orderBook = await fetchUpstoxOrderBook(appConfig, reqMode);
     res.json({
         success: true,
         appConfig: getSafeConfig(),
@@ -981,7 +984,10 @@ app.post('/api/upstox/order-signal', async (req, res) => {
             tag: body.tag
         }, appConfig);
 
-        const orderBook = await fetchUpstoxOrderBook(appConfig.upstoxToken);
+        const reqMode = ['DRY_RUN', 'SANDBOX', 'LIVE'].includes(String(body.mode || '').toUpperCase())
+            ? String(body.mode).toUpperCase()
+            : (appConfig.upstoxOrderMode || 'DRY_RUN');
+        const orderBook = await fetchUpstoxOrderBook(appConfig, reqMode);
         res.status(result.ok ? 200 : 400).json({
             success: result.ok,
             log: result.log,
@@ -1028,7 +1034,7 @@ app.post('/api/upstox/order-test', async (req, res) => {
             tag: `sig-test-${pickedInst.key.slice(0, 3).toLowerCase()}`
         }, appConfig);
 
-        const orderBook = await fetchUpstoxOrderBook(appConfig.upstoxToken);
+        const orderBook = await fetchUpstoxOrderBook(appConfig, mode);
         res.status(result.ok ? 200 : 400).json({
             success: result.ok,
             sourceSignal: latestSig || { time: 'Live Spot', side, ref: spotPrice, setup: 'Sample Signal' },
