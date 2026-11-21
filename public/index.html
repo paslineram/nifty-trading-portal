@@ -221,6 +221,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         </div>
       </div>
       <p class="sub" style="margin-top:4px">Test sending an order signal to Upstox: resolves the nearest active option contract and exchange lot size from Upstox, validates live margin via <code>/v2/charges/margin</code> in <b>Dry Run</b>, or places an order in <b>Sandbox</b> / <b>Live HFT</b>.</p>
+      <p id="upx-ord-ip-note" class="sub" style="margin-top:4px;display:none"></p>
       <form class="f" style="margin:10px 0 4px" onsubmit="sendCustomUpstoxOrder(event)">
         <label>Index <select id="upx-ord-index"><option value="NIFTY">NIFTY (Exchange Lot)</option><option value="SENSEX">SENSEX (Exchange Lot)</option></select></label>
         <label>Signal Side <select id="upx-ord-side"><option value="SELL PE">SELL PE (Bullish)</option><option value="SELL CE">SELL CE (Bearish)</option><option value="BUY CE">BUY CE</option><option value="BUY PE">BUY PE</option></select></label>
@@ -411,6 +412,11 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>Default Product <select id="set-ord-prod"><option value="I">Intraday (I)</option><option value="D">Delivery / NRML (D)</option></select></label>
         <label>Default Lots <input type="number" id="set-ord-lots" value="1" min="1" max="50"></label>
         <label><span>Upstox Sandbox Token <span id="lbl-sbx-status" class="tok-status"></span></span><input type="password" id="set-sandbox-token" placeholder="Optional Sandbox API token" autocomplete="off"></label>
+        <label><span>Static IP Proxy URL (for LIVE HFT) <span id="lbl-proxy-status" class="tok-status"></span></span><input type="password" id="set-order-proxy" placeholder="Optional: http://user:pass@static-ip:port" autocomplete="off"></label>
+        <div style="width:100%;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px">
+          <span id="settings-ip-note" class="sub">Checking server outbound IPv4…</span>
+          <button type="button" id="set-clear-proxy-btn" class="btn" style="display:none;padding:3px 9px;font-size:11px;background:var(--mut);border-color:var(--mut)" onclick="clearOrderProxyUrl(this)">Clear Saved Proxy</button>
+        </div>
 
         <div style="width:100%;display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">
           <button id="set-save-all-btn" class="btn" style="flex:1;min-width:180px">Save All Settings</button>
@@ -497,11 +503,11 @@ const TELEGRAM_STORAGE_KEY = 'paslinTelegramCreds';
 const UPSTOX_STORAGE_KEY = 'paslinUpstoxDaily';
 const LEGACY_SETTINGS_KEY = 'paslinSavedSettings';
 const SETTINGS_DRAFT_KEY = 'paslinSettingsDraft';
-const SECRET_SETTINGS_FIELD_IDS = new Set(['set-token', 'tg-token', 'set-sandbox-token']);
+const SECRET_SETTINGS_FIELD_IDS = new Set(['set-token', 'tg-token', 'set-sandbox-token', 'set-order-proxy']);
 const SETTINGS_FIELD_IDS = [
   'set-token', 'set-sym', 'set-maxtrades',
   'tg-token', 'tg-chatid', 'tg-enabled', 'tg-entries', 'tg-exits', 'tg-monitor',
-  'set-ord-mode', 'set-ord-auto', 'set-ord-prod', 'set-ord-lots', 'set-sandbox-token'
+  'set-ord-mode', 'set-ord-auto', 'set-ord-prod', 'set-ord-lots', 'set-sandbox-token', 'set-order-proxy'
 ];
 const dirtySettingsFields = new Set();
 let settingsHydratedFromServer = false;
@@ -571,9 +577,10 @@ function scrubBrowserSecretStores() {
       localStorage.setItem(TELEGRAM_STORAGE_KEY, JSON.stringify(tg));
     }
     const upx = readJsonStore(UPSTOX_STORAGE_KEY);
-    if ('upstoxToken' in upx || 'upstoxSandboxToken' in upx || 'upstoxTokenDay' in upx) {
+    if ('upstoxToken' in upx || 'upstoxSandboxToken' in upx || 'upstoxOrderProxyUrl' in upx || 'upstoxTokenDay' in upx) {
       delete upx.upstoxToken;
       delete upx.upstoxSandboxToken;
+      delete upx.upstoxOrderProxyUrl;
       delete upx.upstoxTokenDay;
       localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(upx));
     }
@@ -620,6 +627,7 @@ function writeUpstoxDailyStore(patch) {
     });
     delete next.upstoxToken;
     delete next.upstoxSandboxToken;
+    delete next.upstoxOrderProxyUrl;
     delete next.upstoxTokenDay;
     localStorage.setItem(UPSTOX_STORAGE_KEY, JSON.stringify(next));
   } catch (_) {}
@@ -2930,12 +2938,31 @@ function renderOrderLogPreview(log) {
   </div>`;
 }
 
+function formatOutboundIpSummary(ipInfo, cfg) {
+  if (!ipInfo && !cfg) return '';
+  const direct = ipInfo?.directIpv4 || 'unknown';
+  if (cfg?.hasUpstoxOrderProxy) {
+    if (ipInfo?.proxyIpv4) {
+      return `LIVE HFT Outbound IPv4: <code>${escHtml(ipInfo.proxyIpv4)}</code> (via Static IP Proxy <code>${escHtml(cfg.upstoxOrderProxyMasked || '')}</code>) &middot; Direct IPv4: <code>${escHtml(direct)}</code>`;
+    }
+    const errTxt = ipInfo?.proxyError ? ` (${escHtml(ipInfo.proxyError)})` : '';
+    return `Static IP Proxy configured (<code>${escHtml(cfg.upstoxOrderProxyMasked || '')}</code>) — <span class="dnt">proxy check failed${errTxt}</span> &middot; Direct IPv4: <code>${escHtml(direct)}</code>`;
+  }
+  return `Server Outbound IPv4 (IPv4 forced): <code>${escHtml(direct)}</code> — Upstox <b>LIVE</b> requires this IPv4 whitelisted in Upstox Developer App (or configure a Static IP Proxy in Settings). <b>SANDBOX</b> &amp; <b>DRY_RUN</b> do not need static IP.`;
+}
+
 function renderUpstoxOrderPanel(data) {
   const logsEl = document.getElementById('upx-ord-logs');
   const bookEl = document.getElementById('upx-ord-book');
   const pvEl = document.getElementById('upx-ord-preview');
+  const ipEl = document.getElementById('upx-ord-ip-note');
   const logs = data?.state?.logs || [];
   const ob = data?.orderBook;
+
+  if (ipEl && (data?.outboundIp || data?.appConfig)) {
+    ipEl.style.display = 'block';
+    ipEl.innerHTML = formatOutboundIpSummary(data.outboundIp, data.appConfig);
+  }
 
   if (logs.length) {
     renderOrderLogPreview(logs[0]);
@@ -3115,6 +3142,9 @@ async function saveUpstoxOrderConfig(e) {
   };
   const sTok = document.getElementById('set-sandbox-token').value.trim();
   if (sTok) body.upstoxSandboxToken = sTok;
+  const proxyEl = document.getElementById('set-order-proxy');
+  const proxyVal = proxyEl ? proxyEl.value.trim() : '';
+  if (proxyVal) body.upstoxOrderProxyUrl = proxyVal;
 
   try {
     const r = await fetch('/api/upstox/order-config', {
@@ -3124,12 +3154,10 @@ async function saveUpstoxOrderConfig(e) {
     });
     const data = await r.json();
     if (!r.ok || !data.success) throw new Error(data.error || 'Failed to save order config');
-    ['set-ord-mode', 'set-ord-auto', 'set-ord-prod', 'set-ord-lots', 'set-sandbox-token'].forEach(id => dirtySettingsFields.delete(id));
+    ['set-ord-mode', 'set-ord-auto', 'set-ord-prod', 'set-ord-lots', 'set-sandbox-token', 'set-order-proxy'].forEach(id => dirtySettingsFields.delete(id));
+    if (proxyEl) proxyEl.value = '';
     writeDraftStore();
-    writeSavedSettingsStore({
-      ...body,
-      ...(sTok ? { upstoxSandboxToken: sTok } : {})
-    });
+    writeUpstoxDailyStore(body);
     if (msg) {
       msg.className = 'upt';
       msg.textContent = `Order config saved: ${data.appConfig.upstoxOrderMode} · Auto-Execute ${data.appConfig.upstoxAutoOrder ? 'ON' : 'OFF'}.`;
@@ -3203,6 +3231,7 @@ function renderSettingsResult(data) {
   }
   syncTokenField('tg-token', cfg.hasTelegramToken, cfg.telegramTokenMasked, '', 'Paste BotFather token', cfg.hasTelegramToken);
   syncTokenField('set-sandbox-token', cfg.hasUpstoxSandboxToken, cfg.upstoxSandboxTokenMasked, '', 'Optional Sandbox API token', cfg.hasUpstoxSandboxToken);
+  syncTokenField('set-order-proxy', cfg.hasUpstoxOrderProxy, cfg.upstoxOrderProxyMasked, '', 'Optional: http://user:pass@static-ip:port', cfg.hasUpstoxOrderProxy);
 
   const lblUpx = document.getElementById('lbl-upx-status');
   if (lblUpx) {
@@ -3238,6 +3267,32 @@ function renderSettingsResult(data) {
       lblSbx.className = 'tok-status';
       lblSbx.textContent = '';
     }
+  }
+  const lblProxy = document.getElementById('lbl-proxy-status');
+  if (lblProxy) {
+    if (cfg.hasUpstoxOrderProxy) {
+      if (data.outboundIp?.proxyIpv4) {
+        lblProxy.className = 'tok-status upt';
+        lblProxy.textContent = `✓ Active (${data.outboundIp.proxyIpv4})`;
+      } else if (data.outboundIp?.proxyError) {
+        lblProxy.className = 'tok-status dnt';
+        lblProxy.textContent = `⚠ Proxy error`;
+      } else {
+        lblProxy.className = 'tok-status upt';
+        lblProxy.textContent = `✓ Saved (${cfg.upstoxOrderProxyMasked})`;
+      }
+    } else {
+      lblProxy.className = 'tok-status';
+      lblProxy.textContent = '';
+    }
+  }
+  const setIpNote = document.getElementById('settings-ip-note');
+  if (setIpNote) {
+    setIpNote.innerHTML = formatOutboundIpSummary(data.outboundIp, cfg);
+  }
+  const clearProxyBtn = document.getElementById('set-clear-proxy-btn');
+  if (clearProxyBtn) {
+    clearProxyBtn.style.display = cfg.hasUpstoxOrderProxy ? 'inline-block' : 'none';
   }
   const syncBanner = document.getElementById('settings-sync-banner');
   if (syncBanner) {
@@ -3337,6 +3392,8 @@ function renderSettingsResult(data) {
       <tr><td>Telegram Alerts (No Expiry)</td><td><b>${cfg.telegramEnabled ? 'Enabled' : 'Paused'}</b> (${tg.verified && tg.bot?.username ? '@' + escHtml(tg.bot.username) : (cfg.hasTelegramToken ? 'Token saved' : 'Token not set')})</td></tr>
       <tr><td>Telegram Chat ID</td><td><code>${escHtml(cfg.telegramChatId || 'Not set')}</code></td></tr>
       <tr><td>Order Execution Mode</td><td><b>${escHtml(cfg.upstoxOrderMode || 'DRY_RUN')}</b> (${cfg.upstoxAutoOrder ? 'Auto-Execute ON' : 'Manual'})</td></tr>
+      <tr><td>Static IP Proxy (LIVE)</td><td><code>${escHtml(cfg.hasUpstoxOrderProxy ? cfg.upstoxOrderProxyMasked : 'Not configured (Direct IPv4)')}</code></td></tr>
+      <tr><td>Server Outbound IPv4</td><td><code>${escHtml(data.outboundIp?.effectiveIpv4 || data.outboundIp?.directIpv4 || '-')}</code>${data.outboundIp?.usingProxy && data.outboundIp?.proxyIpv4 ? ' (via proxy)' : ''}</td></tr>
       <tr><td>Saved At</td><td>${escHtml(data.savedAt || '-')}</td></tr>
     </table>
   </div>`;
@@ -3453,6 +3510,10 @@ async function saveAllSettings(e) {
   const sTok = document.getElementById('set-sandbox-token').value.trim();
   if (sTok) body.upstoxSandboxToken = sTok;
 
+  const proxyEl = document.getElementById('set-order-proxy');
+  const proxyVal = proxyEl ? proxyEl.value.trim() : '';
+  if (proxyVal) body.upstoxOrderProxyUrl = proxyVal;
+
   try {
     const resp = await fetch('/api/settings', {
       method: 'POST',
@@ -3469,6 +3530,7 @@ async function saveAllSettings(e) {
     document.getElementById('set-token').value = '';
     document.getElementById('tg-token').value = '';
     document.getElementById('set-sandbox-token').value = '';
+    if (proxyEl) proxyEl.value = '';
 
     const parts = ['All settings saved successfully'];
     if (data.upstox?.verified) {
@@ -3481,19 +3543,48 @@ async function saveAllSettings(e) {
     } else if (data.appConfig?.hasTelegramToken && data.telegram?.error) {
       parts.push(`Telegram warning: ${data.telegram.error}`);
     }
+    if (data.outboundIp?.proxyError) {
+      parts.push(`Proxy check warning: ${data.outboundIp.proxyError}`);
+    }
 
     if (msg) {
-      msg.className = (data.appConfig?.hasTelegramToken && data.telegram?.error) ? 'mid' : 'upt';
+      msg.className = (data.appConfig?.hasTelegramToken && data.telegram?.error) || data.outboundIp?.proxyError ? 'mid' : 'upt';
       msg.textContent = parts.join(' · ') + '.';
     }
     renderSettingsResult(data);
     loadTelegramStatus();
+    loadUpstoxOrders();
     if (tok) loadLive(true);
   } catch (err) {
     if (msg) {
       msg.className = 'dnt';
       msg.textContent = err.message || 'Could not save settings.';
     }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function clearOrderProxyUrl(btn) {
+  const msg = document.getElementById('settings-msg');
+  if (btn) btn.disabled = true;
+  if (msg) { msg.style.display = 'block'; msg.className = 'sub'; msg.textContent = 'Clearing Static IP Proxy setting…'; }
+  try {
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clearUpstoxOrderProxy: true })
+    });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data?.success) throw new Error(data?.message || data?.error || 'Could not clear proxy');
+    dirtySettingsFields.delete('set-order-proxy');
+    const proxyEl = document.getElementById('set-order-proxy');
+    if (proxyEl) proxyEl.value = '';
+    if (msg) { msg.className = 'upt'; msg.textContent = 'Static IP Proxy cleared (using direct IPv4).'; }
+    renderSettingsResult(data);
+    loadUpstoxOrders();
+  } catch (err) {
+    if (msg) { msg.className = 'dnt'; msg.textContent = err.message || 'Failed to clear proxy'; }
   } finally {
     if (btn) btn.disabled = false;
   }

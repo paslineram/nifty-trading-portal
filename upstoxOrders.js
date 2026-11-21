@@ -1,5 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const http = require('http');
+const https = require('https');
+const tls = require('tls');
 
 function getWritableDataDir(subName = 'nifty_portal_data') {
     try {
@@ -89,18 +92,151 @@ function getTodayYmdIST() {
     }).format(new Date());
 }
 
-async function upstoxFetch(url, token, options = {}) {
-    const resp = await fetch(url, {
-        method: options.method || 'GET',
-        headers: {
-            'Accept': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            ...(options.body ? { 'Content-Type': 'application/json' } : {})
-        },
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: AbortSignal.timeout(10000)
+function maskProxyUrl(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    try {
+        const u = new URL(s);
+        const creds = u.username ? '***:***@' : '';
+        return `${u.protocol}//${creds}${u.host}`;
+    } catch (_) {
+        return s.length > 10 ? `${s.slice(0, 6)}…${s.slice(-4)}` : '••••';
+    }
+}
+
+function openProxyTunnel(proxyUrlStr, targetHost, targetPort, timeoutMs = 10000) {
+    return new Promise((resolve, reject) => {
+        let pUrl;
+        try {
+            pUrl = new URL(proxyUrlStr);
+        } catch (err) {
+            return reject(new Error(`Invalid proxy URL: ${err.message}`));
+        }
+        const isProxyHttps = pUrl.protocol === 'https:';
+        const mod = isProxyHttps ? https : http;
+        const headers = { Host: `${targetHost}:${targetPort}` };
+        if (pUrl.username || pUrl.password) {
+            const creds = `${decodeURIComponent(pUrl.username)}:${decodeURIComponent(pUrl.password)}`;
+            headers['Proxy-Authorization'] = `Basic ${Buffer.from(creds).toString('base64')}`;
+        }
+        const req = mod.request({
+            host: pUrl.hostname,
+            port: Number(pUrl.port) || (isProxyHttps ? 443 : 80),
+            method: 'CONNECT',
+            path: `${targetHost}:${targetPort}`,
+            headers,
+            family: 4,
+            timeout: timeoutMs
+        });
+        req.on('connect', (res, socket) => {
+            if (res.statusCode !== 200) {
+                socket.destroy();
+                return reject(new Error(`Proxy CONNECT returned HTTP ${res.statusCode}`));
+            }
+            const tlsSocket = tls.connect({
+                socket,
+                servername: targetHost
+            }, () => resolve(tlsSocket));
+            tlsSocket.on('error', (err) => {
+                socket.destroy();
+                reject(err);
+            });
+        });
+        req.on('timeout', () => {
+            req.destroy(new Error('Proxy CONNECT timed out'));
+        });
+        req.on('error', reject);
+        req.end();
     });
-    const payload = await resp.json().catch(() => ({}));
+}
+
+async function httpsRequestIPv4(urlStr, { method = 'GET', headers = {}, body = undefined, timeoutMs = 10000, proxyUrl = '' } = {}) {
+    const u = new URL(urlStr);
+    const targetPort = Number(u.port) || (u.protocol === 'https:' ? 443 : 80);
+    const cleanProxy = String(proxyUrl || '').trim();
+    let tunnelSocket = null;
+    if (cleanProxy) {
+        tunnelSocket = await openProxyTunnel(cleanProxy, u.hostname, targetPort, timeoutMs);
+    }
+
+    return new Promise((resolve, reject) => {
+        const mod = u.protocol === 'https:' ? https : http;
+        const reqOpts = {
+            hostname: u.hostname,
+            port: targetPort,
+            path: `${u.pathname}${u.search}`,
+            method,
+            headers,
+            family: 4,
+            timeout: timeoutMs,
+            ...(tunnelSocket ? { createConnection: () => tunnelSocket } : {})
+        };
+        const req = mod.request(reqOpts, (res) => {
+            const chunks = [];
+            res.on('data', chunk => chunks.push(chunk));
+            res.on('end', () => {
+                const text = Buffer.concat(chunks).toString('utf8');
+                resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode || 0,
+                    text
+                });
+            });
+        });
+        req.on('timeout', () => req.destroy(new Error(`Request timed out after ${timeoutMs}ms`)));
+        req.on('error', (err) => {
+            if (tunnelSocket && !tunnelSocket.destroyed) tunnelSocket.destroy();
+            reject(err);
+        });
+        if (body !== undefined) req.write(body);
+        req.end();
+    });
+}
+
+let ipInfoCache = { key: '', ts: 0, data: null };
+async function getOutboundIpInfo(proxyUrl = '') {
+    const cleanProxy = String(proxyUrl || '').trim();
+    const key = cleanProxy ? maskProxyUrl(cleanProxy) : 'DIRECT';
+    if (ipInfoCache.data && ipInfoCache.key === key && (Date.now() - ipInfoCache.ts) < 60000) {
+        return ipInfoCache.data;
+    }
+    const directRes = await httpsRequestIPv4('https://api.ipify.org', { timeoutMs: 4000 }).catch(() => null);
+    const directIpv4 = directRes?.ok ? directRes.text.trim() : null;
+    let proxyIpv4 = null;
+    let proxyError = null;
+    if (cleanProxy) {
+        const pRes = await httpsRequestIPv4('https://api.ipify.org', { timeoutMs: 5000, proxyUrl: cleanProxy }).catch(err => ({ _err: err.message }));
+        if (pRes?.ok) proxyIpv4 = pRes.text.trim();
+        else proxyError = pRes?._err || `HTTP ${pRes?.status || 0}`;
+    }
+    const data = {
+        directIpv4,
+        proxyIpv4,
+        proxyError,
+        usingProxy: Boolean(cleanProxy),
+        effectiveIpv4: (cleanProxy && proxyIpv4) ? proxyIpv4 : directIpv4,
+        checkedAt: new Date().toISOString()
+    };
+    ipInfoCache = { key, ts: Date.now(), data };
+    return data;
+}
+
+async function upstoxFetch(url, token, options = {}) {
+    const bodyStr = options.body ? JSON.stringify(options.body) : undefined;
+    const headers = {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        ...(bodyStr ? { 'Content-Type': 'application/json', 'Content-Length': String(Buffer.byteLength(bodyStr)) } : {})
+    };
+    const resp = await httpsRequestIPv4(url, {
+        method: options.method || 'GET',
+        headers,
+        body: bodyStr,
+        timeoutMs: 10000,
+        proxyUrl: options.proxyUrl || ''
+    });
+    let payload = {};
+    try { payload = JSON.parse(resp.text); } catch (_) {}
     return { ok: resp.ok && payload?.status !== 'error', status: resp.status, payload };
 }
 
@@ -357,9 +493,11 @@ async function executeUpstoxOrderSignal(params, config = {}) {
         } else {
             const targetBase = mode === 'SANDBOX' ? UPSTOX_SANDBOX_V3 : UPSTOX_HFT_V3;
             const authToken = mode === 'SANDBOX' ? (sandboxToken || token) : token;
+            const proxyUrl = mode === 'LIVE' ? (config.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '') : '';
             const placeRes = await upstoxFetch(`${targetBase}/order/place`, authToken, {
                 method: 'POST',
-                body: orderPayload
+                body: orderPayload,
+                proxyUrl
             }).catch(err => ({ ok: false, status: 0, payload: { message: err.message } }));
 
             apiResponse = placeRes.payload;
@@ -374,7 +512,14 @@ async function executeUpstoxOrderSignal(params, config = {}) {
                 ok = false;
                 status = 'FAILED';
                 const errDetail = placeRes.payload?.errors?.[0]?.message || placeRes.payload?.message || `Upstox returned HTTP ${placeRes.status}`;
-                message = `${mode} order rejected: ${errDetail}`;
+                let ipHint = '';
+                if (/static ip/i.test(errDetail)) {
+                    const ipInfo = await getOutboundIpInfo(proxyUrl).catch(() => null);
+                    if (ipInfo?.effectiveIpv4) {
+                        ipHint = ` | Server outbound IPv4: ${ipInfo.effectiveIpv4}${ipInfo.usingProxy ? ' (via proxy)' : ' (whitelist this IPv4 in Upstox app or configure a Static IP Proxy in Settings)'}`;
+                    }
+                }
+                message = `${mode} order rejected: ${errDetail}${ipHint}`;
             }
         }
 
@@ -453,7 +598,8 @@ async function fetchUpstoxOrderBook(tokenOrConfig, modeOverride) {
     }
 
     try {
-        const res = await upstoxFetch(`${baseUrl}/order/retrieve-all`, token);
+        const proxyUrl = isSandbox ? '' : (cfg.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '');
+        const res = await upstoxFetch(`${baseUrl}/order/retrieve-all`, token, { proxyUrl });
         if (res.ok) {
             const raw = Array.isArray(res.payload?.data) ? res.payload.data : [];
             const orders = raw.map(mapUpstoxOrderRow);
@@ -565,5 +711,7 @@ module.exports = {
     executeUpstoxOrderSignal,
     fetchUpstoxOrderBook,
     processSnapshotForAutoOrder,
-    clearOrderLogs
+    clearOrderLogs,
+    getOutboundIpInfo,
+    maskProxyUrl
 };

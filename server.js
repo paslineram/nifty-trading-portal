@@ -17,7 +17,9 @@ const {
     executeUpstoxOrderSignal,
     fetchUpstoxOrderBook,
     processSnapshotForAutoOrder,
-    clearOrderLogs
+    clearOrderLogs,
+    getOutboundIpInfo,
+    maskProxyUrl
 } = require('./upstoxOrders');
 const {
     buildSheetsDatasets,
@@ -109,6 +111,7 @@ let appConfig = {
     telegramNotifyExits: true,
     telegramAutoMonitor: true,
     upstoxSandboxToken: process.env.UPSTOX_SANDBOX_TOKEN || '',
+    upstoxOrderProxyUrl: process.env.UPSTOX_ORDER_PROXY_URL || '',
     upstoxOrderMode: 'DRY_RUN',
     upstoxAutoOrder: false,
     upstoxOrderProduct: 'I',
@@ -140,7 +143,7 @@ function loadAppConfig() {
                 const { settingsSavedAt: _savedAt, ...cfgFields } = parsed;
                 for (const [k, v] of Object.entries(cfgFields)) {
                     if (v === undefined || v === null) continue;
-                    if (['upstoxToken', 'telegramBotToken', 'telegramChatId', 'upstoxSandboxToken'].includes(k)) {
+                    if (['upstoxToken', 'telegramBotToken', 'telegramChatId', 'upstoxSandboxToken', 'upstoxOrderProxyUrl'].includes(k)) {
                         const s = String(v).trim();
                         if (s !== '') appConfig[k] = s;
                     } else {
@@ -426,13 +429,15 @@ function getUpstoxDailyStatus() {
 }
 
 function getSafeConfig() {
-    const { upstoxToken, telegramBotToken, upstoxSandboxToken, ...rest } = appConfig;
+    const { upstoxToken, telegramBotToken, upstoxSandboxToken, upstoxOrderProxyUrl, ...rest } = appConfig;
     return {
         ...rest,
         hasUpstoxToken: Boolean(upstoxToken),
         upstoxTokenMasked: maskToken(upstoxToken),
         hasUpstoxSandboxToken: Boolean(upstoxSandboxToken),
         upstoxSandboxTokenMasked: maskToken(upstoxSandboxToken),
+        hasUpstoxOrderProxy: Boolean(upstoxOrderProxyUrl),
+        upstoxOrderProxyMasked: maskProxyUrl(upstoxOrderProxyUrl),
         hasTelegramToken: Boolean(telegramBotToken),
         telegramTokenMasked: maskToken(telegramBotToken)
     };
@@ -518,13 +523,15 @@ app.get('/api/settings', async (req, res) => {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
     await ensureTelegramVerified();
+    const outboundIp = await getOutboundIpInfo(appConfig.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '').catch(() => null);
     res.json({
         success: true,
         savedAt: settingsSavedAt,
         appConfig: getSafeConfig(),
         upstox: upstoxState,
         upstoxDaily: getUpstoxDailyStatus(),
-        telegram: telegramBotState
+        telegram: telegramBotState,
+        outboundIp
     });
 });
 
@@ -534,10 +541,13 @@ app.post('/api/settings', async (req, res) => {
     const allowed = [
         'upstoxToken', 'instrument', 'lotSize', 'actionType', 'maxTrades', 'obMaxAge', 'impATR',
         'telegramBotToken', 'telegramChatId', 'telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor',
-        'upstoxSandboxToken', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'
+        'upstoxSandboxToken', 'upstoxOrderProxyUrl', 'upstoxOrderMode', 'upstoxAutoOrder', 'upstoxOrderProduct', 'upstoxOrderLots'
     ];
     let upstoxTokenUpdated = false;
     let tgTokenUpdated = false;
+    if (body.clearUpstoxOrderProxy === true || body.clearUpstoxOrderProxy === 'true') {
+        appConfig.upstoxOrderProxyUrl = '';
+    }
     for (const key of allowed) {
         if (body[key] !== undefined) {
             if (key === 'instrument') {
@@ -545,12 +555,14 @@ app.post('/api/settings', async (req, res) => {
                 if (['NIFTY', 'SENSEX', 'BOTH'].includes(inst)) appConfig.instrument = inst;
             } else if (['telegramEnabled', 'telegramNotifyEntries', 'telegramNotifyExits', 'telegramAutoMonitor', 'upstoxAutoOrder'].includes(key)) {
                 appConfig[key] = body[key] === true || body[key] === 'true';
-            } else if (['upstoxSandboxToken', 'upstoxToken', 'telegramBotToken'].includes(key)) {
+            } else if (['upstoxSandboxToken', 'upstoxToken', 'telegramBotToken', 'upstoxOrderProxyUrl'].includes(key)) {
                 let trimmed = String(body[key]).trim();
                 if (key === 'upstoxToken' || key === 'upstoxSandboxToken') {
                     trimmed = trimmed.replace(/^Bearer\s+/i, '').trim();
                 }
-                if (trimmed !== '') {
+                if (key === 'upstoxOrderProxyUrl' && trimmed.toUpperCase() === 'CLEAR') {
+                    appConfig.upstoxOrderProxyUrl = '';
+                } else if (trimmed !== '') {
                     if (key === 'upstoxToken') upstoxTokenUpdated = true;
                     if (key === 'telegramBotToken') tgTokenUpdated = true;
                     appConfig[key] = trimmed;
@@ -590,6 +602,7 @@ app.post('/api/settings', async (req, res) => {
         await fetchUpstoxProfile(appConfig.upstoxToken);
     }
     await ensureTelegramVerified();
+    const outboundIp = await getOutboundIpInfo(appConfig.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '').catch(() => null);
     if (appConfig.telegramEnabled && appConfig.telegramAutoMonitor && appConfig.telegramBotToken && appConfig.telegramChatId) {
         setImmediate(() => { runBackgroundSignalMonitor(); });
     }
@@ -600,7 +613,8 @@ app.post('/api/settings', async (req, res) => {
         appConfig: getSafeConfig(),
         upstox: upstoxState,
         upstoxDaily: getUpstoxDailyStatus(),
-        telegram: telegramBotState
+        telegram: telegramBotState,
+        outboundIp
     });
 });
 
@@ -922,20 +936,30 @@ app.get('/api/upstox/orders', async (req, res) => {
     const reqMode = ['DRY_RUN', 'SANDBOX', 'LIVE'].includes(String(req.query.mode || '').toUpperCase())
         ? String(req.query.mode).toUpperCase()
         : appConfig.upstoxOrderMode;
-    const orderBook = await fetchUpstoxOrderBook(appConfig, reqMode);
+    const [orderBook, outboundIp] = await Promise.all([
+        fetchUpstoxOrderBook(appConfig, reqMode),
+        getOutboundIpInfo(appConfig.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '').catch(() => null)
+    ]);
     res.json({
         success: true,
         appConfig: getSafeConfig(),
         upstoxDaily: getUpstoxDailyStatus(),
         state: loadOrderState(),
-        orderBook
+        orderBook,
+        outboundIp
     });
 });
 
-app.post('/api/upstox/order-config', (req, res) => {
+app.post('/api/upstox/order-config', async (req, res) => {
     const body = req.body || {};
     if (typeof body.upstoxSandboxToken === 'string' && body.upstoxSandboxToken.trim()) {
-        appConfig.upstoxSandboxToken = body.upstoxSandboxToken.trim();
+        appConfig.upstoxSandboxToken = body.upstoxSandboxToken.trim().replace(/^Bearer\s+/i, '').trim();
+    }
+    if (body.clearUpstoxOrderProxy === true || body.clearUpstoxOrderProxy === 'true') {
+        appConfig.upstoxOrderProxyUrl = '';
+    } else if (typeof body.upstoxOrderProxyUrl === 'string' && body.upstoxOrderProxyUrl.trim()) {
+        const p = body.upstoxOrderProxyUrl.trim();
+        appConfig.upstoxOrderProxyUrl = p.toUpperCase() === 'CLEAR' ? '' : p;
     }
     if (body.upstoxOrderMode !== undefined) {
         const m = String(body.upstoxOrderMode).toUpperCase();
@@ -953,10 +977,12 @@ app.post('/api/upstox/order-config', (req, res) => {
     }
     settingsSavedAt = new Date().toISOString();
     saveAppConfig();
+    const outboundIp = await getOutboundIpInfo(appConfig.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '').catch(() => null);
     res.json({
         success: true,
         savedAt: settingsSavedAt,
-        appConfig: getSafeConfig()
+        appConfig: getSafeConfig(),
+        outboundIp
     });
 });
 
@@ -987,12 +1013,16 @@ app.post('/api/upstox/order-signal', async (req, res) => {
         const reqMode = ['DRY_RUN', 'SANDBOX', 'LIVE'].includes(String(body.mode || '').toUpperCase())
             ? String(body.mode).toUpperCase()
             : (appConfig.upstoxOrderMode || 'DRY_RUN');
-        const orderBook = await fetchUpstoxOrderBook(appConfig, reqMode);
+        const [orderBook, outboundIp] = await Promise.all([
+            fetchUpstoxOrderBook(appConfig, reqMode),
+            getOutboundIpInfo(appConfig.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '').catch(() => null)
+        ]);
         res.status(result.ok ? 200 : 400).json({
             success: result.ok,
             log: result.log,
             state: result.state,
             orderBook,
+            outboundIp,
             appConfig: getSafeConfig()
         });
     } catch (err) {
@@ -1034,13 +1064,17 @@ app.post('/api/upstox/order-test', async (req, res) => {
             tag: `sig-test-${pickedInst.key.slice(0, 3).toLowerCase()}`
         }, appConfig);
 
-        const orderBook = await fetchUpstoxOrderBook(appConfig, mode);
+        const [orderBook, outboundIp] = await Promise.all([
+            fetchUpstoxOrderBook(appConfig, mode),
+            getOutboundIpInfo(appConfig.upstoxOrderProxyUrl || process.env.UPSTOX_ORDER_PROXY_URL || '').catch(() => null)
+        ]);
         res.status(result.ok ? 200 : 400).json({
             success: result.ok,
             sourceSignal: latestSig || { time: 'Live Spot', side, ref: spotPrice, setup: 'Sample Signal' },
             log: result.log,
             state: result.state,
             orderBook,
+            outboundIp,
             appConfig: getSafeConfig()
         });
     } catch (err) {
