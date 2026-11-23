@@ -997,7 +997,7 @@ function column(d, m) {
           ? ` &rarr; <b class="${s.pts >= 0 ? 'upt' : 'dnt'}">${escHtml(s.exitReason)}</b> ${s.exitTime ? escHtml(s.exitTime) + ' ' : ''}@ ${s.exitPrice} (${sgn(s.pts)} pts)`
           : ' &middot; <small>OPEN</small>';
         return `<li>${s.time} <b class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${s.side}</b> @ ${s.ref} SL ${s.sl} TP1 ${s.tp1} <small>${s.setup}</small>${ex}</li>`;
-      }).join('')}</ul>` : `<p class="sub">${d.signalsEnabled === false ? `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).` : 'No OB/FVG signals triggered in the last 3 days.'}</p>`}</div>
+      }).join('')}</ul>` : `<p class="sub">${d.signalsEnabled === false ? `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).` : 'No OB/FVG or HMA pullback signals triggered in the last 3 days.'}</p>`}</div>
   </div>`;
 }
 

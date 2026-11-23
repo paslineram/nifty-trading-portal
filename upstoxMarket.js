@@ -467,6 +467,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
     }
 
     let pos = null;
+    let tradesToday = 0;
     const closePos = (barIdx, exitPrice, reason, ts) => {
         if (!pos) return;
         const pts = Math.round(pos.side === 'SELL PE' ? (exitPrice - pos.ref) : (pos.ref - exitPrice));
@@ -499,9 +500,12 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         const hm = String(c.ts).slice(11, 16);
 
         // Day rollover square-off
-        if (i > 0 && fullCandles[i - 1].ymd !== c.ymd && pos) {
-            const prevBar = fullCandles[i - 1];
-            closePos(i - 1, prevBar.c, 'EOD', prevBar.ts);
+        if (i > 0 && fullCandles[i - 1].ymd !== c.ymd) {
+            if (pos) {
+                const prevBar = fullCandles[i - 1];
+                closePos(i - 1, prevBar.c, 'EOD', prevBar.ts);
+            }
+            tradesToday = 0;
         }
 
         // Update causal swing pivots confirmed at bar p = i - swingL
@@ -652,35 +656,51 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         const longFVG = bullFVG && c.l <= bullFVG.top && c.c > bullFVG.bot && c.c > c.o;
         const shortOB = bearOB && c.h >= bearOB.bot && c.c < bearOB.top && c.c < c.o;
         const shortFVG = bearFVG && c.h >= bearFVG.bot && c.c < bearFVG.top && c.c < c.o;
+        const shallowBull = tradesToday === 0 && hm >= '10:00' && hmaCur != null &&
+            c.l <= hmaCur + 0.15 * atr && c.c > hmaCur && c.c > c.o && (c.c - c.o) >= 0.25 * atr;
+        const shallowBear = tradesToday === 0 && hm >= '10:00' && hmaCur != null &&
+            c.h >= hmaCur - 0.15 * atr && c.c < hmaCur && c.c < c.o && (c.o - c.c) >= 0.25 * atr;
 
         if (i >= offsetInFull && inWindow && !pos) {
-            if ((longOB || longFVG) && bullBias) {
+            if ((longOB || longFVG || shallowBull) && bullBias) {
                 const ref = Math.round(c.c);
-                const stopBase = bullOB ? bullOB.bot : bullFVG.stopBase;
+                const stopBase = (longOB || longFVG)
+                    ? (bullOB ? bullOB.bot : bullFVG.stopBase)
+                    : Math.min(c.l, fullCandles[i - 1].l);
                 const sl = Math.round(stopBase - slBuf * atr);
                 const risk = Math.max(ref - sl, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rr);
-                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup: 'OB/FVG' };
+                    const setup = (longOB || longFVG) ? 'OB/FVG' : 'HMA-PB';
+                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup };
                     pos = { side: 'SELL PE', ref, sl, tp1, risk, signalRef: sigRef };
+                    tradesToday += 1;
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'PE' });
-                    bullOB = null;
-                    bullFVG = null;
+                    if (longOB || longFVG) {
+                        bullOB = null;
+                        bullFVG = null;
+                    }
                 }
-            } else if ((shortOB || shortFVG) && bearBias) {
+            } else if ((shortOB || shortFVG || shallowBear) && bearBias) {
                 const ref = Math.round(c.c);
-                const stopBase = bearOB ? bearOB.top : bearFVG.stopBase;
+                const stopBase = (shortOB || shortFVG)
+                    ? (bearOB ? bearOB.top : bearFVG.stopBase)
+                    : Math.max(c.h, fullCandles[i - 1].h);
                 const sl = Math.round(stopBase + slBuf * atr);
                 const risk = Math.max(sl - ref, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rr);
-                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup: 'OB/FVG' };
+                    const setup = (shortOB || shortFVG) ? 'OB/FVG' : 'HMA-PB';
+                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup };
                     pos = { side: 'SELL CE', ref, sl, tp1, risk, signalRef: sigRef };
+                    tradesToday += 1;
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'CE' });
-                    bearOB = null;
-                    bearFVG = null;
+                    if (shortOB || shortFVG) {
+                        bearOB = null;
+                        bearFVG = null;
+                    }
                 }
             }
         }
@@ -1328,7 +1348,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     if (hmaSlope !== 'UP') peReasons.push('HMA(21) slope points the other way');
     if (nearRes) peReasons.push('too close to resistance');
     if (hourly.dir === 'BEAR') peReasons.push('1-hour trend is against it');
-    if (!peReasons.length) peReasons.push('waiting for fresh bullish OB/FVG retest');
+    if (!peReasons.length) peReasons.push('waiting for fresh bullish OB/FVG or HMA pullback retest');
 
     const ceReasons = [];
     if (spotPrice > cprTop) ceReasons.push('price on the wrong side of the CPR');
@@ -1336,7 +1356,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     if (hmaSlope !== 'DOWN') ceReasons.push('HMA(21) slope points the other way');
     if (nearSup) ceReasons.push('too close to support/resistance');
     if (hourly.dir === 'BULL') ceReasons.push('1-hour trend is against it');
-    if (!ceReasons.length) ceReasons.push('waiting for fresh bearish OB/FVG retest');
+    if (!ceReasons.length) ceReasons.push('waiting for fresh bearish OB/FVG or HMA pullback retest');
 
     const peText = signalsEnabled ? peReasons.join('; ') : `Signals paused (Settings set to ${mode} only)`;
     const ceText = signalsEnabled ? ceReasons.join('; ') : `Signals paused (Settings set to ${mode} only)`;
@@ -1926,33 +1946,49 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
         const longFVG = bullFVG && c.l <= bullFVG.top && c.c > bullFVG.bot && c.c > c.o;
         const shortOB = bearOB && c.h >= bearOB.bot && c.c < bearOB.top && c.c < c.o;
         const shortFVG = bearFVG && c.h >= bearFVG.bot && c.c < bearFVG.top && c.c < c.o;
+        const shallowBull = tradesToday === 0 && hm >= '10:00' && hmaCur != null &&
+            c.l <= hmaCur + 0.15 * atr && c.c > hmaCur && c.c > c.o && (c.c - c.o) >= 0.25 * atr;
+        const shallowBear = tradesToday === 0 && hm >= '10:00' && hmaCur != null &&
+            c.h >= hmaCur - 0.15 * atr && c.c < hmaCur && c.c < c.o && (c.o - c.c) >= 0.25 * atr;
 
         if (c.ymd >= simStartYmd && inWindow && !pos && tradesToday < maxTradesPerDay) {
-            if ((longOB || longFVG) && bullBias) {
+            if ((longOB || longFVG || shallowBull) && bullBias) {
                 const ref = Math.round(c.c);
-                const stopBase = bullOB ? bullOB.bot : bullFVG.stopBase;
+                const stopBase = (longOB || longFVG)
+                    ? (bullOB ? bullOB.bot : bullFVG.stopBase)
+                    : Math.min(c.l, candles15m[i - 1].l);
                 const sl = Math.round(stopBase - slBuf * atr);
                 const risk = Math.max(ref - sl, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rrRatio);
-                    const setup = longOB && longFVG ? 'OB+FVG' : longOB ? 'OB' : 'FVG';
+                    const setup = (longOB || longFVG)
+                        ? (longOB && longFVG ? 'OB+FVG' : longOB ? 'OB' : 'FVG')
+                        : 'HMA-PB';
                     pos = { side: 'SELL PE', ref, sl, tp1, risk, entryTs: c.ts, setup };
                     tradesToday += 1;
-                    bullOB = null;
-                    bullFVG = null;
+                    if (longOB || longFVG) {
+                        bullOB = null;
+                        bullFVG = null;
+                    }
                 }
-            } else if ((shortOB || shortFVG) && bearBias) {
+            } else if ((shortOB || shortFVG || shallowBear) && bearBias) {
                 const ref = Math.round(c.c);
-                const stopBase = bearOB ? bearOB.top : bearFVG.stopBase;
+                const stopBase = (shortOB || shortFVG)
+                    ? (bearOB ? bearOB.top : bearFVG.stopBase)
+                    : Math.max(c.h, candles15m[i - 1].h);
                 const sl = Math.round(stopBase + slBuf * atr);
                 const risk = Math.max(sl - ref, atr * 0.5);
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rrRatio);
-                    const setup = shortOB && shortFVG ? 'OB+FVG' : shortOB ? 'OB' : 'FVG';
+                    const setup = (shortOB || shortFVG)
+                        ? (shortOB && shortFVG ? 'OB+FVG' : shortOB ? 'OB' : 'FVG')
+                        : 'HMA-PB';
                     pos = { side: 'SELL CE', ref, sl, tp1, risk, entryTs: c.ts, setup };
                     tradesToday += 1;
-                    bearOB = null;
-                    bearFVG = null;
+                    if (shortOB || shortFVG) {
+                        bearOB = null;
+                        bearFVG = null;
+                    }
                 }
             }
         }
