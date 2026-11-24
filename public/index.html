@@ -110,8 +110,17 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
 .xr-plan-box small{display:block;font-size:10px;color:var(--mut)}
 .xr-plan-box b{font-size:14px;font-variant-numeric:tabular-nums}
 .xr-action{font-weight:700;font-size:11px;letter-spacing:.02em}
-.xr-tag-entry{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:700;background:rgba(22,132,91,.12);color:var(--up)}
-.xr-tag-near{display:inline-block;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;background:rgba(217,119,6,.12);color:#92400e}
+.xr-state-ok{display:inline-block;font-size:11px;font-weight:700;color:var(--up)}
+.xr-state-wait{display:inline-block;font-size:11px;font-weight:700;color:#b45309}
+.xr-state-near{display:inline-block;font-size:11px;font-weight:600;color:var(--mut)}
+.xr-guide{border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px;line-height:1.45;background:var(--bg)}
+.xr-guide.is-ok{border-color:rgba(22,132,91,.35);background:rgba(22,132,91,.06)}
+.xr-guide.is-wait{border-color:rgba(217,119,6,.35);background:rgba(217,119,6,.07)}
+.xr-check-list{display:flex;flex-wrap:wrap;gap:4px 10px;margin:8px 0 6px;padding-top:6px;border-top:1px solid var(--bd);font-size:11px;font-variant-numeric:tabular-nums}
+.xr-check-item{white-space:nowrap}
+.xr-check-item.is-ok{color:var(--up);font-weight:600}
+.xr-check-item.is-no{color:var(--mut)}
+.xr-btn-sm{padding:5px 11px;font-size:11px;white-space:nowrap}
 @media(max-width:960px){.xr-pulse{grid-template-columns:repeat(2,1fr)}.xr-two-col{grid-template-columns:1fr}}
 @media(max-width:560px){.xr-pulse{grid-template-columns:1fr}.xr-search{width:100%}}
 </style>
@@ -1337,8 +1346,8 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
     ? `<b>${escHtml(lastCandle.dayLabel)} ${escHtml(lastCandle.time)} IST</b> <span>O <b>${fmt2(lastCandle.o)}</b></span> <span>H <b>${fmt2(lastCandle.h)}</b></span> <span>L <b>${fmt2(lastCandle.l)}</b></span> <span>C <b>${fmt2(lastCandle.c)}</b></span>${lastCandle.vwap != null ? ` <span>VWAP <b style="color:var(--accent)">${fmt2(lastCandle.vwap)}</b></span>` : ''}${lastCandle.ema20 != null ? ` <span>EMA20 <b style="color:#7c3aed">${fmt2(lastCandle.ema20)}</b></span>` : ''}`
     : 'Hover chart for OHLC & VWAP';
 
-  const setupBadgeCls = tp ? (tp.action === 'BUY' ? 'up' : 'dn') : 'mid';
-  const setupBadgeTxt = tp ? `${tp.action} · ${tp.obSide} OB` : 'NO CLEAR SETUP';
+  const setupToneCls = tp ? (tp.action === 'BUY' ? 'upt' : 'dnt') : 'sub';
+  const setupStateTxt = tp ? `${tp.action} · ${tp.obSide} OB` : 'No Setup';
 
   const layerToggleBtns = [
     { key: 'ema20', label: 'EMA 20', col: '#7c3aed' },
@@ -1352,32 +1361,34 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
   }).join('');
 
   const confChecksHtml = (cf.checks || []).length
-    ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0 4px">${cf.checks.map(c => `<span class="pill ${c.ok ? 'GOOD' : 'NEUTRAL'}" style="font-size:10px;padding:1px 6px">${escHtml(c.label)} ${c.ok ? '✓' : '·'}</span>`).join('')}</div>`
+    ? `<div class="xr-check-list">${cf.checks.map(c => `<span class="xr-check-item ${c.ok ? 'is-ok' : 'is-no'}">${c.ok ? '✓' : '·'} ${escHtml(c.label)}</span>`).join('')}</div>`
     : '';
   const confScoreTone = (cf.score || 0) >= 4 ? 'upt' : ((cf.score || 0) >= 3 ? 'midt' : 'sub');
+  const oppCls = tp ? (tp.confirmed ? 'xr-state-ok' : (tp.entryStatus === 'WAIT_BOUNCE' || tp.entryStatus === 'WAIT_OPEN' || tp.entryStatus === 'LATE_SESSION' ? 'xr-state-wait' : 'xr-state-near')) : 'sub';
+  const guideCls = tp ? (tp.confirmed ? 'is-ok' : (tp.entryStatus === 'WAIT_BOUNCE' || tp.entryStatus === 'WAIT_OPEN' || tp.entryStatus === 'LATE_SESSION' ? 'is-wait' : '')) : '';
 
-  panel.innerHTML = `<div class="card" style="border-color:#cbd5e1">
+  panel.innerHTML = `<div class="card" style="border-color:var(--bd)">
     <div class="hd" style="justify-content:space-between;gap:10px;margin-bottom:10px">
       <div>
         <div class="hd" style="gap:10px">
           <h3 style="font-size:18px;margin:0">${escHtml(d.symbol)}</h3>
-          <span class="big">${fmt2(d.price)}</span>
-          <b class="${tone(d.change)}" style="font-size:14px">${chgPctTxt}</b>
-          <span class="badge ${setupBadgeCls}">${setupBadgeTxt}</span>
+          <span class="big num">${fmt2(d.price)}</span>
+          <b class="${tone(d.change)} num" style="font-size:14px">${chgPctTxt}</b>
+          <span style="font-size:12px;font-weight:700" class="${setupToneCls}">${setupStateTxt}</span>
           ${loading ? '<small class="sub">Updating…</small>' : ''}
         </div>
-        <p class="sub" style="margin-top:2px">${escHtml(d.sector || 'NSE Equity')} &middot; ${escHtml(tfLbl)} candles &middot; ${d.days}D${cf.verdict ? ` &middot; <b class="${confScoreTone}">${escHtml(cf.verdict)} (${cf.score}/${cf.maxScore})</b>` : ''}</p>
+        <p class="sub" style="margin-top:2px">${escHtml(d.sector || 'NSE Equity')} &middot; ${escHtml(tfLbl)} candles &middot; ${d.days}D${cf.verdict ? ` &middot; <b class="${confScoreTone} num">${escHtml(cf.verdict)} (${cf.score}/${cf.maxScore})</b>` : ''}</p>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <select style="width:auto;padding:4px 8px;font-size:12px" onchange="openXrayStockChart(this.value)">${symOptions}</select>
+        <select style="width:auto;padding:5px 8px;font-size:12px" onchange="openXrayStockChart(this.value)">${symOptions}</select>
         <div class="tf-group">
           ${['5m', '15m', '1h'].map(tf => `<button type="button" class="tf-btn ${d.timeframe === tf ? 'active' : ''}" onclick="setXrayChartParams('${tf}', null)">${tf}</button>`).join('')}
         </div>
         <div class="tf-group">
           ${[1, 2, 5].map(dy => `<button type="button" class="tf-btn ${d.days === dy ? 'active' : ''}" onclick="setXrayChartParams(null, ${dy})">${dy}D</button>`).join('')}
         </div>
-        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="openXrayStockChart('${escHtml(d.symbol)}', true)">Refresh</button>
-        <button type="button" class="btn" style="padding:4px 10px;font-size:11px;background:var(--mut);border-color:var(--mut)" onclick="closeXrayStockChart()">Close</button>
+        <button type="button" class="btn xr-btn-sm" onclick="openXrayStockChart('${escHtml(d.symbol)}', true)">Refresh</button>
+        <button type="button" class="btn xr-btn-sm" style="background:var(--mut);border-color:var(--mut)" onclick="closeXrayStockChart()">Close</button>
       </div>
     </div>
 
@@ -1401,36 +1412,39 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
       <div class="sc" style="margin:0;border:1px solid var(--bd)">
         <div class="hd" style="justify-content:space-between;margin-bottom:8px">
           <h4 style="margin:0">Trade Plan</h4>
-          ${tp ? `<span class="${tp.inside ? 'xr-tag-entry' : 'xr-tag-near'}">${escHtml(tp.opportunity)}${tp.hasFvg ? ' · FVG' : ''}</span>` : '<span class="sub">Wait</span>'}
+          ${tp ? `<span class="${oppCls}">${escHtml(tp.opportunity)}${tp.hasFvg ? ' · +FVG' : ''}</span>` : '<span class="sub">Wait</span>'}
         </div>
         ${tp ? `
+          <div class="xr-guide ${guideCls}">
+            <b class="${tp.confirmed ? 'upt' : (tp.entryStatus === 'WAIT_BOUNCE' ? 'midt' : '')}">${tp.confirmed ? 'Entry Confirmed' : (tp.entryStatus === 'WAIT_BOUNCE' ? 'Wait for Candle Close' : (tp.entryStatus === 'WAIT_OPEN' || tp.entryStatus === 'LATE_SESSION' ? 'Session Guard' : 'Limit Watch'))}:</b> ${escHtml(tp.entryHint || tp.note)}
+          </div>
           <div class="xr-plan-grid">
-            <div class="xr-plan-box"><small>Entry</small><b style="color:#92400e">${fmt2(tp.entry)}</b></div>
+            <div class="xr-plan-box"><small>Entry</small><b style="color:#b45309">${fmt2(tp.entry)}</b></div>
             <div class="xr-plan-box"><small>Stop Loss${tp.riskPct != null ? ` (-${tp.riskPct}%)` : ''}</small><b class="dnt">${fmt2(tp.sl)}</b></div>
             <div class="xr-plan-box"><small>Target${tp.targetPct != null ? ` (+${tp.targetPct}%)` : ''}</small><b class="upt">${fmt2(tp.target)}</b></div>
             <div class="xr-plan-box"><small>Reward Ratio</small><b class="upt">1 : ${tp.rr}</b></div>
           </div>
-          <div class="kv-row"><span class="sub">OB Zone (${escHtml(tp.status)})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
+          <div class="kv-row"><span class="sub">Fresh OB (${tp.sameDayOb ? 'Today' : 'Prior'})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
           <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
           <div class="kv-row"><span class="sub">VWAP / EMA20</span><b class="num">${rd.vsVwap ? `<span class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Abv' : 'Blw'} ${fmt2(rd.vsVwap.vwap)}</span>` : '-'}${cf.ema20 != null ? ` · <span class="${cf.aboveEma20 ? 'upt' : 'dnt'}">${fmt2(cf.ema20)}</span>` : ''}</b></div>
           <div class="kv-row"><span class="sub">ORB 15m / PDH-L</span><b class="num">${cf.orbState ? escHtml(cf.orbState.replace(' ORB', '')) : '-'}${lv.pdh != null ? ` · ${fmt2(lv.pdl)}–${fmt2(lv.pdh)}` : ''}</b></div>
-          <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)} ${rd.trend15m === 'Up' ? '✓' : rd.trend15m === 'Down' ? '✗' : ''}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)} ${rd.trend1h === 'Up' ? '✓' : rd.trend1h === 'Down' ? '✗' : ''}</span></b></div>
+          <div class="kv-row"><span class="sub">Supertrend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)} ${rd.trend15m === 'Up' ? '✓' : rd.trend15m === 'Down' ? '✗' : ''}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)} ${rd.trend1h === 'Up' ? '✓' : rd.trend1h === 'Down' ? '✗' : ''}</span></b></div>
           ${confChecksHtml}
-          <p class="note" style="margin-top:6px">${escHtml(tp.note)}${cf.recentVolSpike ? ' Recent institutional volume spike confirms momentum.' : ''}</p>
+          <p class="note" style="margin-top:4px">${escHtml(tp.note)}${cf.recentVolSpike ? ' Recent volume spike confirms flow.' : ''}</p>
         ` : `
           <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
           <div class="kv-row"><span class="sub">VWAP / EMA20</span><b class="num">${rd.vsVwap ? `<span class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Abv' : 'Blw'} ${fmt2(rd.vsVwap.vwap)}</span>` : '-'}${cf.ema20 != null ? ` · <span class="${cf.aboveEma20 ? 'upt' : 'dnt'}">${fmt2(cf.ema20)}</span>` : ''}</b></div>
           <div class="kv-row"><span class="sub">ORB 15m / PDH-L</span><b class="num">${cf.orbState ? escHtml(cf.orbState.replace(' ORB', '')) : '-'}${lv.pdh != null ? ` · ${fmt2(lv.pdl)}–${fmt2(lv.pdh)}` : ''}</b></div>
-          <div class="kv-row"><span class="sub">Trend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
+          <div class="kv-row"><span class="sub">Supertrend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)}</span></b></div>
           ${confChecksHtml}
-          <p class="note" style="margin-top:6px">${rd.note ? escHtml(rd.note) + ' ' : ''}No trend-aligned Order Block trade setup at current price on ${escHtml(d.timeframe)}.</p>
+          <p class="note" style="margin-top:6px">${rd.note ? escHtml(rd.note) + ' ' : ''}No trend-aligned Fresh Order Block setup at current price on ${escHtml(d.timeframe)}.</p>
         `}
       </div>
     </div>
   </div>`;
 }
 
-let xrayObRadarState = { tf: '5m', maxDist: 0.5, minTargetPct: 0, filter: 'ALL', search: '', sector: '', data: null, loading: false };
+let xrayObRadarState = { tf: '5m', maxDist: 0.5, minTargetPct: 0, minConf: 0, filter: 'ALL', search: '', sector: '', data: null, loading: false };
 
 async function openXrayStockChart(symbol, force = false, tfOverride = null) {
   if (!symbol) return;
@@ -1472,16 +1486,19 @@ function getFilteredXraySetups(scan) {
   const f = xrayObRadarState.filter || 'ALL';
   const maxD = Number(xrayObRadarState.maxDist) || 0.5;
   const minTgt = Number(xrayObRadarState.minTargetPct) || 0;
+  const minConf = Number(xrayObRadarState.minConf) || 0;
   const q = (xrayObRadarState.search || '').trim().toUpperCase();
   const sec = (xrayObRadarState.sector || '').trim();
   return (scan?.items || []).filter(s => {
     if (s.distPct > maxD) return false;
     const tgtPct = s.targetPct != null ? Number(s.targetPct) : (s.entry ? Math.abs((s.target - s.entry) / s.entry * 100) : 0);
     if (minTgt > 0 && tgtPct < minTgt) return false;
+    if (minConf > 0 && Number(s.confScore || 0) < minConf) return false;
+    if (f === 'CONFIRMED' && !s.confirmed) return false;
     if (f === 'BULL' && s.obSide !== 'BULL') return false;
     if (f === 'BEAR' && s.obSide !== 'BEAR') return false;
-    if (f === 'INSIDE' && !s.inside) return false;
-    if (f === 'FRESH' && s.status !== 'FRESH') return false;
+    if (f === 'INSIDE' && !(s.inside || s.entryStatus === 'WAIT_BOUNCE' || s.confirmed)) return false;
+    if (f === 'FVG' && !s.hasFvg) return false;
     if (f === 'GAP' && !(Math.abs(Number(s.gapPct || 0)) >= 0.4 || Number(s.dayRangePct || 0) >= 1.5)) return false;
     if (sec && !(s.sector === sec || (sec === 'FMCG' && s.sector === 'FMCG & Consumer'))) return false;
     if (q && !s.symbol.toUpperCase().includes(q) && !String(s.sector || '').toUpperCase().includes(q)) return false;
@@ -1491,7 +1508,7 @@ function getFilteredXraySetups(scan) {
 
 function renderXrayObRadarInner(scan) {
   if (xrayObRadarState.loading && !scan) {
-    return '<p class="sub" style="margin-top:12px">Scanning NIFTY 50 stocks for active Order Block opportunities…</p>';
+    return '<p class="sub" style="margin-top:12px">Scanning NIFTY 50 stocks for Fresh Supertrend-aligned Order Blocks…</p>';
   }
   if (!scan || !Array.isArray(scan.items)) {
     return '<p class="sub" style="margin-top:12px">Order Block trade scanner unavailable right now. Click <b>Rescan</b> to retry.</p>';
@@ -1500,50 +1517,63 @@ function renderXrayObRadarInner(scan) {
   const rows = getFilteredXraySetups(scan);
 
   if (!rows.length) {
-    const resetBtn = (xrayObRadarState.filter !== 'ALL' || xrayObRadarState.minTargetPct > 0 || xrayObRadarState.search || xrayObRadarState.sector)
-      ? ` <button type="button" class="btn" style="padding:3px 9px;font-size:11px;margin-left:6px" onclick="resetXrayObFilters()">Clear Filters</button>`
-      : '';
-    return `<div style="margin-top:12px;padding:16px;text-align:center;background:var(--bg);border-radius:8px;border:1px solid var(--bd)">
-      <p class="sub">No stocks matching these filters within <b>${maxD}%</b> of a ${escHtml(scan.timeframe)} Order Block.${resetBtn}</p>
+    const hasFilters = xrayObRadarState.filter !== 'ALL' || xrayObRadarState.minTargetPct > 0 || xrayObRadarState.minConf > 0 || xrayObRadarState.search || xrayObRadarState.sector;
+    const actionBtn = hasFilters
+      ? ` <button type="button" class="btn xr-btn-sm" style="margin-left:8px" onclick="resetXrayObFilters()">Clear Filters</button>`
+      : ` <button type="button" class="btn xr-btn-sm" style="margin-left:8px" onclick="setXrayObRadarParams(null, null, null, true)">Rescan</button>`;
+    return `<div style="margin-top:12px;padding:18px;text-align:center;background:var(--bg);border-radius:8px;border:1px solid var(--bd)">
+      <p class="sub">No Fresh Supertrend-aligned setups matching these filters within <b>${maxD}%</b> on ${escHtml(scan.timeframe)}.${actionBtn}</p>
     </div>`;
   }
 
-  return `<div style="max-height:460px;overflow:auto;margin-top:10px;border:1px solid var(--bd);border-radius:8px"><table>
+  return `<div style="max-height:470px;overflow:auto;margin-top:10px;border:1px solid var(--bd);border-radius:8px"><table>
     <tr style="position:sticky;top:0;background:var(--card);z-index:1">
       <th>Stock</th>
-      <th>Price / Gap</th>
-      <th>Setup</th>
-      <th>OB Zone</th>
-      <th>Entry &middot; SL &middot; Target (Room)</th>
+      <th>Price / Move</th>
+      <th>Setup &amp; Entry Timing</th>
+      <th>Fresh OB &amp; Score</th>
+      <th>Entry &middot; SL &middot; Target</th>
       <th>R:R</th>
-      <th>VWAP</th>
+      <th>VWAP &amp; Trend</th>
       <th></th>
     </tr>
     ${rows.map(s => {
       const activeCls = xrayChartState.symbol === s.symbol ? ' active-stock' : '';
       const isBuy = s.action === 'BUY';
-      const distLabel = s.inside
-        ? '<span class="xr-tag-entry">AT ENTRY</span>'
-        : `<span class="xr-tag-near">${s.distPct.toFixed(2)}% away</span>`;
+      const timingHtml = s.confirmed
+        ? '<span class="xr-state-ok">CONFIRMED BOUNCE</span>'
+        : (s.entryStatus === 'WAIT_BOUNCE'
+          ? '<span class="xr-state-wait">WAIT BOUNCE</span>'
+          : (s.entryStatus === 'WAIT_OPEN' || s.entryStatus === 'LATE_SESSION'
+            ? `<span class="xr-state-wait">${escHtml(s.opportunity || s.windowLabel)}</span>`
+            : `<span class="xr-state-near num">${s.distPct.toFixed(2)}% away</span>`));
       const vwapCell = s.aboveVwap === null
         ? '<span class="sub">-</span>'
         : `<span class="${s.aboveVwap ? 'upt' : 'dnt'}" style="font-weight:600">${s.aboveVwap ? 'Above' : 'Below'}</span>`;
-      const trendSub = [s.structure, s.trend15m ? `15m ${s.trend15m}` : ''].filter(Boolean).join(' · ');
+      const trendSub = [s.trend15m ? `15m ${s.trend15m}` : '', s.trend1h ? `1h ${s.trend1h}` : '', s.structure].filter(Boolean).join(' · ');
       const tgtPct = s.targetPct != null ? Number(s.targetPct).toFixed(2) : (s.entry ? Math.abs((s.target - s.entry) / s.entry * 100).toFixed(2) : '-');
       const slPct = s.riskPct != null ? Number(s.riskPct).toFixed(2) : (s.entry ? Math.abs((s.entry - s.sl) / s.entry * 100).toFixed(2) : '-');
       const gapVal = s.gapPct != null ? Number(s.gapPct) : null;
-      const gapBadge = gapVal != null && Math.abs(gapVal) >= 0.4
+      const gapMeta = gapVal != null && Math.abs(gapVal) >= 0.4
         ? ` &middot; <b class="${gapVal >= 0 ? 'upt' : 'dnt'}">Gap ${gapVal > 0 ? '+' : ''}${gapVal.toFixed(2)}%</b>`
         : (s.dayRangePct ? ` &middot; Rng ${Number(s.dayRangePct).toFixed(1)}%` : '');
-      return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}', false, '${escHtml(scan.timeframe)}')" title="Click to open ${escHtml(s.symbol)} clean chart">
-        <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small>${escHtml(s.sector)}</small></td>
-        <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small><small>${gapBadge}</small></td>
-        <td><span class="xr-action ${isBuy ? 'upt' : 'dnt'}">${isBuy ? 'BUY · BULL OB' : 'SELL · BEAR OB'}</span><div style="margin-top:2px">${distLabel}</div></td>
-        <td class="num"><b>${fmt2(s.bot)}–${fmt2(s.top)}</b><br><small>${escHtml(s.status)}${s.hasFvg ? ' · <b style="color:#d97706">+FVG</b>' : ''}</small></td>
+      const confScore = s.confScore != null ? s.confScore : null;
+      const confMax = s.confMax || 5;
+      const confTone = confScore >= 4 ? 'upt' : (confScore >= 3 ? 'midt' : 'sub');
+      const zoneSub = [
+        s.sameDayOb ? 'Today' : 'Prior',
+        s.hasFvg ? '<b style="color:#b45309">+FVG</b>' : '',
+        confScore != null ? `<b class="${confTone}">${confScore}/${confMax}</b>` : ''
+      ].filter(Boolean).join(' · ');
+      return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}', false, '${escHtml(scan.timeframe)}')" title="${escHtml(s.entryHint || `Click to open ${s.symbol} Trade Plan chart`)}">
+        <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small class="sub">${escHtml(s.sector)}</small></td>
+        <td class="num"><b>${fmt2(s.price)}</b><br><small class="${tone(s.changePct)}">${s.changePct > 0 ? '+' : ''}${Number(s.changePct).toFixed(2)}%</small><small class="sub">${gapMeta}</small></td>
+        <td><span class="xr-action ${isBuy ? 'upt' : 'dnt'}">${isBuy ? 'BUY · BULL OB' : 'SELL · BEAR OB'}</span><div style="margin-top:2px">${timingHtml}</div></td>
+        <td class="num"><b>${fmt2(s.bot)}–${fmt2(s.top)}</b><br><small class="sub">${zoneSub}</small></td>
         <td class="num"><small>Ent <b>${fmt2(s.entry)}</b> &middot; SL <b class="dnt">${fmt2(s.sl)}</b> (-${slPct}%)<br>Tgt <b class="upt">${fmt2(s.target)}</b> (<b>+${tgtPct}%</b>)</small></td>
         <td class="num"><b class="upt">1:${s.rr}</b></td>
         <td>${vwapCell}${trendSub ? `<br><small class="sub">${escHtml(trendSub)}</small>` : ''}</td>
-        <td style="text-align:right"><small class="stock-link">Chart &rarr;</small></td>
+        <td style="text-align:right"><small class="stock-link" style="white-space:nowrap">Chart &rarr;</small></td>
       </tr>`;
     }).join('')}
   </table></div>`;
@@ -1580,6 +1610,7 @@ function toggleXraySectorFilter(matchSector) {
 function resetXrayObFilters() {
   xrayObRadarState.filter = 'ALL';
   xrayObRadarState.minTargetPct = 0;
+  xrayObRadarState.minConf = 0;
   xrayObRadarState.search = '';
   xrayObRadarState.sector = '';
   updateXrayObRadarCard();
@@ -1588,6 +1619,11 @@ function resetXrayObFilters() {
 
 function setXrayMinTargetPct(val) {
   xrayObRadarState.minTargetPct = Number(val) || 0;
+  updateXrayObRadarCard();
+}
+
+function setXrayMinConf(val) {
+  xrayObRadarState.minConf = Number(val) || 0;
   updateXrayObRadarCard();
 }
 
@@ -1616,26 +1652,28 @@ async function setXrayObRadarParams(tf, maxDist, filter, force = false) {
 function buildXrayObRadarCardHtml(scan) {
   const rows = getFilteredXraySetups(scan);
   const matched = rows.length;
-  const inside = rows.filter(i => i.inside).length;
+  const confCnt = rows.filter(i => i.confirmed).length;
+  const waitBounceCnt = rows.filter(i => i.entryStatus === 'WAIT_BOUNCE').length;
   const buyCnt = rows.filter(i => i.action === 'BUY').length;
   const sellCnt = rows.filter(i => i.action === 'SELL').length;
   const metaText = xrayObRadarState.loading
     ? 'Scanning NIFTY 50…'
-    : `${matched} Setups · ${inside} At Entry · ${buyCnt} Buy / ${sellCnt} Sell`;
+    : `${matched} Fresh Setups · ${confCnt} Confirmed · ${waitBounceCnt} Wait Bounce · ${buyCnt} Buy / ${sellCnt} Sell`;
 
   const filters = [
     { key: 'ALL', label: 'All Setups' },
-    { key: 'GAP', label: 'Gap / Wide Room' },
-    { key: 'INSIDE', label: 'At Entry' },
-    { key: 'BULL', label: 'Buy (Bull OB)' },
-    { key: 'BEAR', label: 'Sell (Bear OB)' },
-    { key: 'FRESH', label: 'Fresh OB' }
+    { key: 'CONFIRMED', label: 'Confirmed' },
+    { key: 'INSIDE', label: 'At Zone' },
+    { key: 'BULL', label: 'Buy (Bull)' },
+    { key: 'BEAR', label: 'Sell (Bear)' },
+    { key: 'FVG', label: '+FVG' },
+    { key: 'GAP', label: 'Gap / Wide Room' }
   ];
 
   return `<div class="hd" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
       <div>
         <h3 style="margin:0">Order Block Trade Opportunities</h3>
-        <p class="sub" style="margin-top:2px">${escHtml(metaText)}${xrayObRadarState.sector ? ` · Filtered by sector <b>${escHtml(xrayObRadarState.sector)}</b> <a href="#" onclick="resetXrayObFilters();return false;" style="color:var(--accent)">Clear</a>` : ' · Click any stock for its clean Trade Plan chart'}</p>
+        <p class="sub num" style="margin-top:2px">${escHtml(metaText)}${xrayObRadarState.sector ? ` · Sector: <b>${escHtml(xrayObRadarState.sector)}</b> <a href="#" onclick="resetXrayObFilters();return false;" style="color:var(--accent)">Clear</a>` : ' · Fresh OBs only · Click row for Trade Plan'}</p>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <div class="tf-group">
@@ -1644,10 +1682,13 @@ function buildXrayObRadarCardHtml(scan) {
         <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayObRadarParams(null, this.value, null)" title="Max distance from OB entry">
           ${[0.25, 0.5, 0.75, 1.0].map(v => `<option value="${v}" ${Number(xrayObRadarState.maxDist) === v ? 'selected' : ''}>Within ${v}%</option>`).join('')}
         </select>
+        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayMinConf(this.value)" title="Minimum 5-point confluence score">
+          ${[{v:0,l:'All Conv'},{v:3,l:'3+/5 Tradable'},{v:4,l:'4+/5 High'}].map(o => `<option value="${o.v}" ${Number(xrayObRadarState.minConf) === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}
+        </select>
         <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayMinTargetPct(this.value)" title="Minimum target room to sit on trade">
           ${[{v:0,l:'Any Target'},{v:0.8,l:'Tgt >= 0.8%'},{v:1.0,l:'Tgt >= 1.0%'},{v:1.5,l:'Tgt >= 1.5%'}].map(o => `<option value="${o.v}" ${Number(xrayObRadarState.minTargetPct) === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}
         </select>
-        <button type="button" class="btn" style="padding:4px 10px;font-size:11px" onclick="setXrayObRadarParams(null, null, null, true)">Rescan</button>
+        <button type="button" class="btn xr-btn-sm" onclick="setXrayObRadarParams(null, null, null, true)">Rescan</button>
       </div>
     </div>
     <div class="xr-toolbar">
@@ -1673,7 +1714,7 @@ function renderXRay(m) {
 
   if (xNotice) {
     xNotice.className = 'sub';
-    xNotice.innerHTML = `Multi-angle NIFTY 50 view: Order Block setups, market breadth, sector heat &amp; top movers (${escHtml(m.asOf || '')}) · Updated ${escHtml(syncedAt)}.`;
+    xNotice.innerHTML = `NIFTY 50 X-Ray · Fresh OBs + Strict 15m/1h Supertrend · Best entry window 09:30–14:30 IST (${escHtml(m.asOf || '')}) · Updated ${escHtml(syncedAt)}.`;
   }
 
   let html = '';
@@ -1684,7 +1725,8 @@ function renderXRay(m) {
     const topSec = secs[0];
     const botSec = secs.length ? secs[secs.length - 1] : null;
     const setupsAll = (obScan?.items || []).filter(s => s.distPct <= (Number(xrayObRadarState.maxDist) || 0.5));
-    const entryNowCnt = setupsAll.filter(s => s.inside).length;
+    const confirmedCnt = setupsAll.filter(s => s.confirmed).length;
+    const atZoneWaitCnt = setupsAll.filter(s => s.entryStatus === 'WAIT_BOUNCE').length;
     const buySetups = setupsAll.filter(s => s.action === 'BUY').length;
     const sellSetups = setupsAll.filter(s => s.action === 'SELL').length;
 
@@ -1694,14 +1736,14 @@ function renderXRay(m) {
     // Angle 1: Instant Market Pulse Overview Strip
     html += `<div class="xr-pulse">
       <div class="xr-pulse-tile">
-        <div class="xr-pulse-lbl">OB Trade Setups (${escHtml(xrayObRadarState.tf)})</div>
-        <div class="xr-pulse-val">${setupsAll.length} Ready <small style="font-weight:600;color:var(--up)">(${entryNowCnt} at entry)</small></div>
-        <div class="xr-pulse-sub"><b class="upt">${buySetups} Buy</b> &middot; <b class="dnt">${sellSetups} Sell</b> within ${Number(xrayObRadarState.maxDist) || 0.5}%</div>
+        <div class="xr-pulse-lbl">Fresh OB Setups (${escHtml(xrayObRadarState.tf)})</div>
+        <div class="xr-pulse-val num">${confirmedCnt} Confirmed <small style="font-weight:600;color:var(--mut)">(${setupsAll.length} ready)</small></div>
+        <div class="xr-pulse-sub num">${atZoneWaitCnt} wait bounce &middot; <b class="upt">${buySetups} Buy</b> &middot; <b class="dnt">${sellSetups} Sell</b></div>
       </div>
       <div class="xr-pulse-tile">
         <div class="xr-pulse-lbl">NIFTY 50 Market Mood</div>
-        <div class="xr-pulse-val ${moodCls}">${escHtml(moodTxt)} <small class="sub" style="font-weight:600">(A/D ${b ? b.adRatio : '-'})</small></div>
-        <div class="xr-pulse-sub">${b ? `<b class="upt">${b.up} Up</b> &middot; <b class="dnt">${b.low} Down</b> &middot; ${b.neutral} Flat` : '-'}</div>
+        <div class="xr-pulse-val ${moodCls} num">${escHtml(moodTxt)} <small class="sub" style="font-weight:600">(A/D ${b ? b.adRatio : '-'})</small></div>
+        <div class="xr-pulse-sub num">${b ? `<b class="upt">${b.up} Up</b> &middot; <b class="dnt">${b.low} Down</b> &middot; ${b.neutral} Flat` : '-'}</div>
       </div>
       <div class="xr-pulse-tile">
         <div class="xr-pulse-lbl">Leading Sector</div>

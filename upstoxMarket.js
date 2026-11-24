@@ -2363,7 +2363,7 @@ function computeBarATRSeries(candles, period = 14) {
 }
 
 function computeTrendFromCandles(candles) {
-    if (!candles || candles.length < 12) return { dir: 'Flat', bull: null };
+    if (!candles || candles.length < 12) return { dir: 'Flat', bull: null, hmaAligned: null };
     const closes = candles.map(c => c.c);
     const st = computeSupertrend(candles, 10, 3);
     const hma = computeHMA(closes);
@@ -2373,18 +2373,18 @@ function computeTrendFromCandles(candles) {
     const lastC = closes[closes.length - 1];
     const stUp = lastSt ? lastSt.up : null;
     const hmaUp = (h1 != null && h2 != null) ? h1 >= h2 : (h1 != null ? lastC >= h1 : null);
-    if (stUp === true && hmaUp !== false) return { dir: 'Up', bull: true };
-    if (stUp === false && hmaUp !== true) return { dir: 'Down', bull: false };
-    if (hmaUp === true) return { dir: 'Up', bull: true };
-    if (hmaUp === false) return { dir: 'Down', bull: false };
-    return { dir: 'Flat', bull: null };
+    if (stUp === true) return { dir: 'Up', bull: true, hmaAligned: hmaUp !== false };
+    if (stUp === false) return { dir: 'Down', bull: false, hmaAligned: hmaUp !== true };
+    if (hmaUp === true) return { dir: 'Up', bull: true, hmaAligned: true };
+    if (hmaUp === false) return { dir: 'Down', bull: false, hmaAligned: false };
+    return { dir: 'Flat', bull: null, hmaAligned: null };
 }
 
 function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, tf = '5m') {
     const n = candles.length;
     const atrSeries = computeBarATRSeries(candles, 14);
     const lastAtr = atrSeries[n - 1] || Math.max(1, (candles[n - 1]?.c || 100) * 0.005);
-    const maxAgeBars = tf === '1h' ? 24 : (tf === '15m' ? 36 : 48);
+    const maxAgeBars = tf === '1h' ? 24 : (tf === '15m' ? 24 : 36);
 
     // Detect Order Blocks with strong displacement & optional overlapping FVG
     const rawOBs = [];
@@ -2508,13 +2508,13 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
     const visibleOBs = [...brokenOBs, ...activeOBs].sort((a, b) => a.startIdx - b.startIdx);
 
     const lastPrice = candles[n - 1]?.c || 0;
-    // Choose best Trade Zone OB (closest active/fresh OB to price)
+    // Choose best Trade Zone OB (closest FRESH active OB to price; skip already-tested zones)
     let tradeZone = null;
     const candidates = visibleOBs
-        .filter(o => o.status !== 'broken' && !o.stale && o.tests <= 1)
+        .filter(o => o.status === 'fresh' && !o.stale && o.tests === 0)
         .sort((a, b) => {
-            const scoreA = (a.status === 'fresh' ? 0 : 1) * 1000 + Math.abs(lastPrice - a.mid) / Math.max(1, lastAtr);
-            const scoreB = (b.status === 'fresh' ? 0 : 1) * 1000 + Math.abs(lastPrice - b.mid) / Math.max(1, lastAtr);
+            const scoreA = (a.hasFvg ? -0.25 : 0) + Math.abs(lastPrice - a.mid) / Math.max(1, lastAtr);
+            const scoreB = (b.hasFvg ? -0.25 : 0) + Math.abs(lastPrice - b.mid) / Math.max(1, lastAtr);
             return scoreA - scoreB;
         });
     if (candidates.length) {
@@ -2662,9 +2662,56 @@ function isObAlignedWithContext(obSide, ctx = {}) {
     return { ok: true, reason: '' };
 }
 
+function evaluateObEntryState(ob, lastBar, prevBar, tf, distPct, inside, marketOpen) {
+    const hm = lastBar?.hm || formatBarTimeIST(lastBar?.ts);
+    const istNow = getISTParts(new Date());
+    const nowHm = `${String(istNow.hour).padStart(2, '0')}:${String(istNow.minute).padStart(2, '0')}`;
+    const checkHm = marketOpen ? nowHm : hm;
+
+    const sessionEarly = Boolean(checkHm && checkHm < '09:30');
+    const sessionLate = Boolean(checkHm && checkHm > '14:30');
+    const sessionOk = !sessionEarly && !sessionLate;
+
+    const barTouched = lastBar && ((ob.side === 'BULL' && lastBar.l <= ob.top && lastBar.h >= ob.bot) || (ob.side === 'BEAR' && lastBar.h >= ob.bot && lastBar.l <= ob.top));
+    const prevTouched = prevBar && ((ob.side === 'BULL' && prevBar.l <= ob.top && prevBar.h >= ob.bot) || (ob.side === 'BEAR' && prevBar.h >= ob.bot && prevBar.l <= ob.top));
+    const touchedRecently = Boolean(inside || barTouched || (prevTouched && distPct <= 0.35));
+
+    const bullBounce = lastBar && lastBar.c > lastBar.o && lastBar.c >= ob.bot && lastBar.c >= (lastBar.l + (lastBar.h - lastBar.l) * 0.45);
+    const bearBounce = lastBar && lastBar.c < lastBar.o && lastBar.c <= ob.top && lastBar.c <= (lastBar.h - (lastBar.h - lastBar.l) * 0.45);
+    const bounceConfirmed = ob.side === 'BULL' ? Boolean(touchedRecently && bullBounce) : Boolean(touchedRecently && bearBounce);
+
+    let entryStatus = 'APPROACHING';
+    let entryHint = `Wait for price near ${ob.side === 'BULL' ? ob.top : ob.bot}.`;
+
+    if (sessionEarly && marketOpen) {
+        entryStatus = 'WAIT_OPEN';
+        entryHint = 'Opening 09:15–09:30 gap volatility — wait until 09:30 IST.';
+    } else if (sessionLate && marketOpen) {
+        entryStatus = 'LATE_SESSION';
+        entryHint = 'After 14:30 IST cutoff — avoid fresh intraday OB entries.';
+    } else if (bounceConfirmed) {
+        entryStatus = 'CONFIRMED';
+        entryHint = `Rejection candle confirmed off ${ob.side === 'BULL' ? 'demand' : 'supply'} OB.`;
+    } else if (inside || distPct <= 0.12) {
+        entryStatus = 'WAIT_BOUNCE';
+        entryHint = `Touching OB without ${ob.side === 'BULL' ? 'green' : 'red'} rejection close yet — avoid blind entry.`;
+    }
+
+    return {
+        confirmed: entryStatus === 'CONFIRMED',
+        entryStatus,
+        entryHint,
+        sessionOk,
+        sessionEarly,
+        sessionLate,
+        windowLabel: sessionEarly ? 'Wait 09:30' : (sessionLate ? 'Late >14:30' : '09:30–14:30')
+    };
+}
+
 function buildObTradePlan(ob, price, swingHighs = [], swingLows = [], resistance = null, support = null, atr = 0, ctx = {}) {
     if (!ob || !Number.isFinite(price) || price <= 0) return null;
-    if (ob.status === 'broken' || ob.stale || Number(ob.tests || 0) > 1) return null;
+    const allowTested = Boolean(ctx.includeTested);
+    if (ob.status === 'broken' || ob.stale || (allowTested ? Number(ob.tests || 0) > 1 : Number(ob.tests || 0) > 0)) return null;
 
     const inside = price >= ob.bot && price <= ob.top;
     const distPts = inside ? 0 : Math.min(Math.abs(price - ob.top), Math.abs(price - ob.bot));
@@ -2883,11 +2930,11 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         maxDistPct: tf === '1h' ? 3.5 : 2.5
     };
 
-    // Build clean trade plan matching the closest trend-aligned actionable OB (same ranking as X-Ray OB Radar)
+    // Build clean trade plan matching the closest trend-aligned FRESH actionable OB (same ranking as X-Ray OB Radar)
     let tradePlan = null;
     let planRawOb = null;
     let skippedReason = '';
-    const activeRawOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && !o.stale && o.tests <= 1);
+    const activeRawOBs = (analysis.visibleOBs || []).filter(o => o.status === 'fresh' && !o.stale && o.tests === 0);
     const rankedPlans = [];
     for (const candidate of activeRawOBs) {
         const alignCheck = isObAlignedWithContext(candidate.side, planCtx);
@@ -2897,23 +2944,38 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         }
         const plan = buildObTradePlan(candidate, lastPrice, analysis.swingHighs, analysis.swingLows, analysis.resistance, analysis.support, analysis.atr, planCtx);
         if (!plan) continue;
-        const rankScore = plan.distPct + (candidate.status === 'fresh' ? 0 : 0.08) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
-        rankedPlans.push({ candidate, plan, rankScore });
+        const obCandle = candlesAll[candidate.startIdx];
+        const sameDayOb = Boolean(obCandle && obCandle.ymd === latestYmd);
+        const rankScore = plan.distPct - (sameDayOb ? 0.06 : 0) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+        rankedPlans.push({ candidate, plan, rankScore, sameDayOb });
     }
     rankedPlans.sort((a, b) => a.rankScore - b.rankScore);
     if (rankedPlans.length) {
-        const { candidate, plan } = rankedPlans[0];
+        const { candidate, plan, sameDayOb } = rankedPlans[0];
         planRawOb = candidate;
+        const lastRaw = candlesAll[candlesAll.length - 1];
+        const prevRaw = candlesAll[candlesAll.length - 2];
+        const entryState = evaluateObEntryState(candidate, lastRaw, prevRaw, tf, plan.distPct, plan.inside, isMarketOpenIST(new Date()));
+        const oppLabel = entryState.confirmed
+            ? 'CONFIRMED'
+            : (entryState.entryStatus === 'WAIT_BOUNCE' ? 'WAIT BOUNCE' : (entryState.entryStatus === 'WAIT_OPEN' ? 'WAIT 09:30' : (entryState.entryStatus === 'LATE_SESSION' ? 'LATE >14:30' : 'APPROACHING')));
         tradePlan = {
             ...plan,
+            opportunity: oppLabel,
+            confirmed: entryState.confirmed,
+            entryStatus: entryState.entryStatus,
+            entryHint: entryState.entryHint,
+            sessionOk: entryState.sessionOk,
+            windowLabel: entryState.windowLabel,
+            sameDayOb,
             bot: candidate.bot,
             top: candidate.top,
             status: candidate.status.toUpperCase(),
             tests: candidate.tests,
             hasFvg: Boolean(candidate.hasFvg),
-            note: plan.inside
-                ? `Price is inside the ${plan.obSide === 'BULL' ? 'Bullish demand' : 'Bearish supply'} OB (${Number(candidate.bot).toFixed(2)}–${Number(candidate.top).toFixed(2)}).`
-                : `${plan.distPct}% away from ${plan.obSide === 'BULL' ? 'Bullish demand' : 'Bearish supply'} OB — wait near ${Number(plan.entry).toFixed(2)}.`
+            note: entryState.entryHint + (plan.inside
+                ? ` Zone ${Number(candidate.bot).toFixed(2)}–${Number(candidate.top).toFixed(2)}.`
+                : ` ${plan.distPct}% away — limit watch near ${Number(plan.entry).toFixed(2)}.`)
         };
     }
 
@@ -3077,12 +3139,16 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 const visStartIdx = Math.max(0, candles.findIndex(c => c.ymd >= firstYmd));
 
                 const analysis = detectStockOrderBlocksAndLiquidity(candles, visStartIdx, [], tf);
-                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status !== 'broken' && !o.stale && o.tests <= 1);
+                const unbrokenOBs = (analysis.visibleOBs || []).filter(o => o.status === 'fresh' && !o.stale && o.tests === 0);
                 if (!unbrokenOBs.length) return null;
 
                 const vwapSeries = computeSessionVWAP(candles);
+                const ema20Series = computeEMASeries(candles.map(c => c.c), 20);
+                const volStats = computeVolumeStats(candles, 20);
                 const lastBar = candles[candles.length - 1];
+                const prevBar = candles[candles.length - 2];
                 const lastVwap = vwapSeries[vwapSeries.length - 1];
+                const lastEma20 = ema20Series[ema20Series.length - 1];
                 const trendTf = computeTrendFromCandles(candles);
 
                 let price = r2(lastBar.c);
@@ -3119,7 +3185,17 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 const gapPct = prevCloseCandle > 0 ? r2(((todayOpen - prevCloseCandle) / prevCloseCandle) * 100) : 0;
                 const dayRangePct = todayOpen > 0 ? r2(((todayHigh - todayLow) / todayOpen) * 100) : 0;
 
+                const orbBarsNeeded = tf === '5m' ? 3 : 1;
+                const orbBars = todayBars.slice(0, orbBarsNeeded);
+                const orbHigh = orbBars.length ? r2(Math.max(...orbBars.map(b => b.h))) : null;
+                const orbLow = orbBars.length ? r2(Math.min(...orbBars.map(b => b.l))) : null;
+                const orbState = (orbHigh != null && orbLow != null)
+                    ? (price > orbHigh ? 'Above ORB' : (price < orbLow ? 'Below ORB' : 'Inside ORB'))
+                    : null;
                 const aboveVwap = lastVwap != null ? price >= lastVwap : null;
+                const aboveEma20 = lastEma20 != null ? price >= lastEma20 : null;
+                const recentVolSpike = volStats.slice(-4).some(v => v?.volSpike);
+
                 const baseCtx = {
                     tf,
                     aboveVwap,
@@ -3128,7 +3204,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     maxDistPct: 1.0
                 };
 
-                // Keep ONLY stocks with a valid, trend & VWAP aligned trading opportunity near the Order Block
+                // Keep ONLY stocks with a valid, trend & VWAP aligned FRESH Order Block near price
                 let best = null;
                 for (const ob of unbrokenOBs) {
                     const plan = buildObTradePlan(
@@ -3142,14 +3218,21 @@ async function scanNifty50OrderBlocks(opts = {}) {
                         baseCtx
                     );
                     if (!plan || plan.distPct > 1.0) continue;
-                    const rankScore = plan.distPct + (ob.status === 'fresh' ? 0 : 0.08) - (ob.hasFvg ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+                    const obCandle = candles[ob.startIdx];
+                    const sameDayOb = Boolean(obCandle && obCandle.ymd === lastBar.ymd);
+                    const rankScore = plan.distPct - (sameDayOb ? 0.06 : 0) - (ob.hasFvg ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
                     if (!best || rankScore < best.rankScore) {
-                        best = { ob, plan, rankScore };
+                        best = { ob, plan, rankScore, sameDayOb };
                     }
                 }
                 if (!best) return null;
 
-                const { ob, plan } = best;
+                const { ob, plan, sameDayOb } = best;
+                const entryState = evaluateObEntryState(ob, lastBar, prevBar, tf, plan.distPct, plan.inside, marketOpen);
+                const oppLabel = entryState.confirmed
+                    ? 'CONFIRMED'
+                    : (entryState.entryStatus === 'WAIT_BOUNCE' ? 'WAIT BOUNCE' : (entryState.entryStatus === 'WAIT_OPEN' ? 'WAIT 09:30' : (entryState.entryStatus === 'LATE_SESSION' ? 'LATE >14:30' : 'APPROACHING')));
+
                 return {
                     upstoxKey: st.upstoxKey,
                     symbol: st.symbol,
@@ -3168,7 +3251,13 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     rr: plan.rr,
                     riskPct: plan.riskPct,
                     targetPct: plan.targetPct,
-                    opportunity: plan.opportunity,
+                    opportunity: oppLabel,
+                    confirmed: entryState.confirmed,
+                    entryStatus: entryState.entryStatus,
+                    entryHint: entryState.entryHint,
+                    sessionOk: entryState.sessionOk,
+                    windowLabel: entryState.windowLabel,
+                    sameDayOb,
                     status: ob.status.toUpperCase(),
                     tests: ob.tests,
                     hasFvg: Boolean(ob.hasFvg),
@@ -3177,6 +3266,10 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     position: plan.position,
                     aboveVwap,
                     vwap: lastVwap,
+                    ema20: lastEma20,
+                    aboveEma20,
+                    orbState,
+                    recentVolSpike,
                     structure: analysis.structure,
                     trend: trendTf.dir
                 };
@@ -3185,7 +3278,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
             }
         });
 
-        // Confirm higher timeframe (15m / 1h) alignment for the surviving candidates so radar matches stock X-Ray 1:1
+        // Confirm higher timeframe (15m / 1h) alignment & compute 5-point confluence matching stock X-Ray 1:1
         const confirmed = await mapWithConcurrency(rows.filter(Boolean), 5, async (item) => {
             try {
                 const [c15, c1h] = await Promise.all([
@@ -3202,19 +3295,42 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     trend1h
                 });
                 if (!htfAligned.ok) return null;
+
+                const desiredBull = item.action === 'BUY';
+                const checks = [
+                    { label: 'Trend 15m/1h', ok: desiredBull ? (trend15m === 'Up' && trend1h !== 'Down') : (trend15m === 'Down' && trend1h !== 'Up') },
+                    { label: 'VWAP', ok: desiredBull ? item.aboveVwap === true : item.aboveVwap === false },
+                    { label: 'EMA 20', ok: desiredBull ? item.aboveEma20 === true : item.aboveEma20 === false },
+                    { label: 'ORB 15m', ok: item.orbState ? (desiredBull ? item.orbState === 'Above ORB' : item.orbState === 'Below ORB') : false },
+                    { label: 'OB / FVG', ok: Boolean(item.status === 'FRESH' || item.hasFvg) }
+                ];
+                const confScore = checks.filter(c => c.ok).length;
+                const confVerdict = confScore >= 4 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Partial');
+
                 const { upstoxKey, ...cleanItem } = item;
-                return { ...cleanItem, trend15m, trend1h };
+                return {
+                    ...cleanItem,
+                    trend15m,
+                    trend1h,
+                    confScore,
+                    confMax: checks.length,
+                    confVerdict,
+                    checks
+                };
             } catch (_) {
                 return null;
             }
         });
 
+        const statusOrder = { CONFIRMED: 0, WAIT_BOUNCE: 1, APPROACHING: 2, WAIT_OPEN: 3, LATE_SESSION: 4 };
         const items = confirmed
             .filter(Boolean)
             .sort((a, b) => {
-                if (a.inside !== b.inside) return a.inside ? -1 : 1;
+                const sa = statusOrder[a.entryStatus] ?? 9;
+                const sb = statusOrder[b.entryStatus] ?? 9;
+                if (sa !== sb) return sa - sb;
+                if ((b.confScore || 0) !== (a.confScore || 0)) return (b.confScore || 0) - (a.confScore || 0);
                 if (a.distPct !== b.distPct) return a.distPct - b.distPct;
-                if (a.status !== b.status) return a.status === 'FRESH' ? -1 : 1;
                 return b.rr - a.rr;
             });
 
