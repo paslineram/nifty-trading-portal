@@ -1425,12 +1425,13 @@ function renderXrayStockPanel(d, loading = false, errMsg = '') {
             <div class="xr-plan-box"><small>Reward Ratio</small><b class="upt">1 : ${tp.rr}</b></div>
           </div>
           <div class="kv-row"><span class="sub">Fresh OB (${tp.sameDayOb ? 'Today' : 'Prior'})</span><b class="num">${fmt2(tp.bot)}–${fmt2(tp.top)}</b></div>
+          <div class="kv-row"><span class="sub">Liquidity</span><b class="num">${tp.hasSweep ? `<span class="upt">${escHtml(tp.sweepLabel || 'Swept')}</span>` : (tp.hasLiqDraw ? `<span style="color:var(--accent)">${escHtml(tp.liqTargetLabel)}</span>` : '-')}${tp.stopHuntWarning ? ` <span class="midt">· Stop-Hunt Caution</span>` : ''}</b></div>
           <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
           <div class="kv-row"><span class="sub">VWAP / EMA20</span><b class="num">${rd.vsVwap ? `<span class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Abv' : 'Blw'} ${fmt2(rd.vsVwap.vwap)}</span>` : '-'}${cf.ema20 != null ? ` · <span class="${cf.aboveEma20 ? 'upt' : 'dnt'}">${fmt2(cf.ema20)}</span>` : ''}</b></div>
           <div class="kv-row"><span class="sub">ORB 15m / PDH-L</span><b class="num">${cf.orbState ? escHtml(cf.orbState.replace(' ORB', '')) : '-'}${lv.pdh != null ? ` · ${fmt2(lv.pdl)}–${fmt2(lv.pdh)}` : ''}</b></div>
           <div class="kv-row"><span class="sub">Supertrend (15m / 1h)</span><b><span class="${rd.trend15m === 'Up' ? 'upt' : rd.trend15m === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend15m)} ${rd.trend15m === 'Up' ? '✓' : rd.trend15m === 'Down' ? '✗' : ''}</span> · <span class="${rd.trend1h === 'Up' ? 'upt' : rd.trend1h === 'Down' ? 'dnt' : ''}">${escHtml(rd.trend1h)} ${rd.trend1h === 'Up' ? '✓' : rd.trend1h === 'Down' ? '✗' : ''}</span></b></div>
           ${confChecksHtml}
-          <p class="note" style="margin-top:4px">${escHtml(tp.note)}${cf.recentVolSpike ? ' Recent volume spike confirms flow.' : ''}</p>
+          <p class="note" style="margin-top:4px">${escHtml(tp.note)}${tp.stopHuntWarning && tp.trapLabel ? ` Caution: ${escHtml(tp.trapLabel)}.` : ''}${cf.recentVolSpike ? ' Recent volume spike confirms flow.' : ''}</p>
         ` : `
           <div class="kv-row"><span class="sub">Structure</span><b class="${rd.structure === 'Broke up' ? 'upt' : rd.structure === 'Broke down' ? 'dnt' : ''}">${escHtml(rd.structure || '-')}</b></div>
           <div class="kv-row"><span class="sub">VWAP / EMA20</span><b class="num">${rd.vsVwap ? `<span class="${rd.vsVwap.above ? 'upt' : 'dnt'}">${rd.vsVwap.above ? 'Abv' : 'Blw'} ${fmt2(rd.vsVwap.vwap)}</span>` : '-'}${cf.ema20 != null ? ` · <span class="${cf.aboveEma20 ? 'upt' : 'dnt'}">${fmt2(cf.ema20)}</span>` : ''}</b></div>
@@ -1498,6 +1499,7 @@ function getFilteredXraySetups(scan) {
     if (f === 'BULL' && s.obSide !== 'BULL') return false;
     if (f === 'BEAR' && s.obSide !== 'BEAR') return false;
     if (f === 'INSIDE' && !(s.inside || s.entryStatus === 'WAIT_BOUNCE' || s.confirmed)) return false;
+    if (f === 'SWEEP' && !s.hasSweep) return false;
     if (f === 'FVG' && !s.hasFvg) return false;
     if (f === 'GAP' && !(Math.abs(Number(s.gapPct || 0)) >= 0.4 || Number(s.dayRangePct || 0) >= 1.5)) return false;
     if (sec && !(s.sector === sec || (sec === 'FMCG' && s.sector === 'FMCG & Consumer'))) return false;
@@ -1558,12 +1560,14 @@ function renderXrayObRadarInner(scan) {
         ? ` &middot; <b class="${gapVal >= 0 ? 'upt' : 'dnt'}">Gap ${gapVal > 0 ? '+' : ''}${gapVal.toFixed(2)}%</b>`
         : (s.dayRangePct ? ` &middot; Rng ${Number(s.dayRangePct).toFixed(1)}%` : '');
       const confScore = s.confScore != null ? s.confScore : null;
-      const confMax = s.confMax || 5;
-      const confTone = confScore >= 4 ? 'upt' : (confScore >= 3 ? 'midt' : 'sub');
+      const confMax = s.confMax || 6;
+      const confTone = confScore >= 5 ? 'upt' : (confScore >= 3 ? 'midt' : 'sub');
       const zoneSub = [
         s.sameDayOb ? 'Today' : 'Prior',
+        s.hasSweep ? '<b class="upt">+Sweep</b>' : (s.hasLiqDraw ? `<span style="color:var(--accent)">${isBuy ? 'BSL Draw' : 'SSL Draw'}</span>` : ''),
         s.hasFvg ? '<b style="color:#b45309">+FVG</b>' : '',
-        confScore != null ? `<b class="${confTone}">${confScore}/${confMax}</b>` : ''
+        confScore != null ? `<b class="${confTone}">${confScore}/${confMax}</b>` : '',
+        s.stopHuntWarning ? '<b class="midt" title="Unswept Equal/PD level near SL">SL Caution</b>' : ''
       ].filter(Boolean).join(' · ');
       return `<tr class="clickable-stock${activeCls}" data-symbol="${escHtml(s.symbol)}" onclick="openXrayStockChart('${escHtml(s.symbol)}', false, '${escHtml(scan.timeframe)}')" title="${escHtml(s.entryHint || `Click to open ${s.symbol} Trade Plan chart`)}">
         <td><span class="stock-link">${escHtml(s.symbol)}</span><br><small class="sub">${escHtml(s.sector)}</small></td>
@@ -1664,6 +1668,7 @@ function buildXrayObRadarCardHtml(scan) {
     { key: 'ALL', label: 'All Setups' },
     { key: 'CONFIRMED', label: 'Confirmed' },
     { key: 'INSIDE', label: 'At Zone' },
+    { key: 'SWEEP', label: 'Liq Swept' },
     { key: 'BULL', label: 'Buy (Bull)' },
     { key: 'BEAR', label: 'Sell (Bear)' },
     { key: 'FVG', label: '+FVG' },
@@ -1673,7 +1678,7 @@ function buildXrayObRadarCardHtml(scan) {
   return `<div class="hd" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
       <div>
         <h3 style="margin:0">Order Block Trade Opportunities</h3>
-        <p class="sub num" style="margin-top:2px">${escHtml(metaText)}${xrayObRadarState.sector ? ` · Sector: <b>${escHtml(xrayObRadarState.sector)}</b> <a href="#" onclick="resetXrayObFilters();return false;" style="color:var(--accent)">Clear</a>` : ' · Fresh OBs only · Click row for Trade Plan'}</p>
+        <p class="sub num" style="margin-top:2px">${escHtml(metaText)}${xrayObRadarState.sector ? ` · Sector: <b>${escHtml(xrayObRadarState.sector)}</b> <a href="#" onclick="resetXrayObFilters();return false;" style="color:var(--accent)">Clear</a>` : ' · Fresh OB + Sweep/BSL-SSL Draw · Click row for Trade Plan'}</p>
       </div>
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <div class="tf-group">
@@ -1682,8 +1687,8 @@ function buildXrayObRadarCardHtml(scan) {
         <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayObRadarParams(null, this.value, null)" title="Max distance from OB entry">
           ${[0.25, 0.5, 0.75, 1.0].map(v => `<option value="${v}" ${Number(xrayObRadarState.maxDist) === v ? 'selected' : ''}>Within ${v}%</option>`).join('')}
         </select>
-        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayMinConf(this.value)" title="Minimum 5-point confluence score">
-          ${[{v:0,l:'All Conv'},{v:3,l:'3+/5 Tradable'},{v:4,l:'4+/5 High'}].map(o => `<option value="${o.v}" ${Number(xrayObRadarState.minConf) === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}
+        <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayMinConf(this.value)" title="Minimum 6-point confluence score">
+          ${[{v:0,l:'All Conv'},{v:4,l:'4+/6 Tradable'},{v:5,l:'5+/6 High'}].map(o => `<option value="${o.v}" ${Number(xrayObRadarState.minConf) === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}
         </select>
         <select style="width:auto;padding:4px 8px;font-size:11px" onchange="setXrayMinTargetPct(this.value)" title="Minimum target room to sit on trade">
           ${[{v:0,l:'Any Target'},{v:0.8,l:'Tgt >= 0.8%'},{v:1.0,l:'Tgt >= 1.0%'},{v:1.5,l:'Tgt >= 1.5%'}].map(o => `<option value="${o.v}" ${Number(xrayObRadarState.minTargetPct) === o.v ? 'selected' : ''}>${o.l}</option>`).join('')}
@@ -1714,7 +1719,7 @@ function renderXRay(m) {
 
   if (xNotice) {
     xNotice.className = 'sub';
-    xNotice.innerHTML = `NIFTY 50 X-Ray · Fresh OBs + Strict 15m/1h Supertrend · Best entry window 09:30–14:30 IST (${escHtml(m.asOf || '')}) · Updated ${escHtml(syncedAt)}.`;
+    xNotice.innerHTML = `NIFTY 50 X-Ray · Fresh OB + Liquidity Sweep/Draw + 15m/1h Supertrend · Best window 09:30–14:30 IST (${escHtml(m.asOf || '')}) · Updated ${escHtml(syncedAt)}.`;
   }
 
   let html = '';

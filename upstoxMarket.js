@@ -2552,9 +2552,24 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
         liquidity.push({ side, label, price: r2(price), idx });
     };
 
-    // Prev day high / low from daily candles
+    // Prev day high / low from daily candles (fallback to prior trading day bars in intraday candles)
     const latestYmd = candles[n - 1]?.ymd;
-    const prevDaily = [...(dailyCandles || [])].reverse().find(d => d.ymd < latestYmd);
+    let prevDaily = [...(dailyCandles || [])].reverse().find(d => d.ymd < latestYmd);
+    if (!prevDaily && latestYmd) {
+        const prevBars = candles.filter(c => c.ymd && c.ymd < latestYmd);
+        if (prevBars.length) {
+            const prevDayYmd = prevBars[prevBars.length - 1].ymd;
+            const dayBars = prevBars.filter(c => c.ymd === prevDayYmd);
+            if (dayBars.length) {
+                prevDaily = {
+                    ymd: prevDayYmd,
+                    h: Math.max(...dayBars.map(c => c.h)),
+                    l: Math.min(...dayBars.map(c => c.l)),
+                    c: dayBars[dayBars.length - 1].c
+                };
+            }
+        }
+    }
     if (prevDaily) {
         addLiq('BSL', 'Prev day high', prevDaily.h, Math.max(visStartIdx, n - 12));
         addLiq('SSL', 'Prev day low', prevDaily.l, Math.max(visStartIdx, n - 12));
@@ -2628,6 +2643,7 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
         swingHighs,
         swingLows,
         liquidity: cleanLiquidity,
+        prevDaily: prevDaily || null,
         resistance,
         support,
         structure
@@ -2705,6 +2721,68 @@ function evaluateObEntryState(ob, lastBar, prevBar, tf, distPct, inside, marketO
         sessionEarly,
         sessionLate,
         windowLabel: sessionEarly ? 'Wait 09:30' : (sessionLate ? 'Late >14:30' : '09:30–14:30')
+    };
+}
+
+function evaluateObLiquidity(ob, candles, analysis, sl, target) {
+    const si = ob.startIdx;
+    const formStart = Math.max(0, si - 2);
+    const formEnd = Math.min(candles.length - 1, si + 1);
+    const formBars = candles.slice(formStart, formEnd + 1);
+    const prevDaily = analysis?.prevDaily || null;
+    const liq = analysis?.liquidity || [];
+
+    let hasSweep = false;
+    let sweepLabel = '';
+    if (formBars.length) {
+        const fLow = Math.min(...formBars.map(b => b.l));
+        const fHigh = Math.max(...formBars.map(b => b.h));
+        const fClose = formBars[formBars.length - 1].c;
+        if (ob.side === 'BULL') {
+            const priors = [
+                ...(analysis.swingLows || []).filter(s => s.idx < formStart && s.idx >= si - 50).map(s => ({ price: s.price, label: 'Swing Low' })),
+                ...(prevDaily ? [{ price: prevDaily.l, label: 'PDL' }] : [])
+            ];
+            const hit = priors.find(p => fLow < p.price && fClose > p.price);
+            if (hit) {
+                hasSweep = true;
+                sweepLabel = `${hit.label} (${r2(hit.price)}) swept`;
+            }
+        } else {
+            const priors = [
+                ...(analysis.swingHighs || []).filter(s => s.idx < formStart && s.idx >= si - 50).map(s => ({ price: s.price, label: 'Swing High' })),
+                ...(prevDaily ? [{ price: prevDaily.h, label: 'PDH' }] : [])
+            ];
+            const hit = priors.find(p => fHigh > p.price && fClose < p.price);
+            if (hit) {
+                hasSweep = true;
+                sweepLabel = `${hit.label} (${r2(hit.price)}) swept`;
+            }
+        }
+    }
+
+    const drawPool = liq.find(l => ob.side === 'BULL'
+        ? (l.side === 'BSL' && l.price >= target * 0.997)
+        : (l.side === 'SSL' && l.price <= target * 1.003));
+    const hasLiqDraw = Boolean(drawPool);
+    const liqTargetLabel = drawPool ? `${drawPool.side} ${drawPool.label} (${r2(drawPool.price)})` : '';
+
+    // Stop-hunt caution: unswept Equal highs/lows or PDH/PDL sitting tightly just beyond SL (0.25% past SL)
+    const trapPool = liq.find(l => {
+        const isMajor = /Equal|Prev day/i.test(l.label || '');
+        if (!isMajor) return false;
+        if (ob.side === 'BULL') return l.side === 'SSL' && l.price <= sl && l.price >= sl * 0.9975;
+        return l.side === 'BSL' && l.price >= sl && l.price <= sl * 1.0025;
+    });
+
+    return {
+        hasSweep,
+        sweepLabel,
+        hasLiqDraw,
+        liqTargetLabel,
+        liqAligned: hasSweep || hasLiqDraw,
+        stopHuntWarning: Boolean(trapPool),
+        trapLabel: trapPool ? `${trapPool.label} (${r2(trapPool.price)}) just beyond SL` : ''
     };
 }
 
@@ -2944,14 +3022,19 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         }
         const plan = buildObTradePlan(candidate, lastPrice, analysis.swingHighs, analysis.swingLows, analysis.resistance, analysis.support, analysis.atr, planCtx);
         if (!plan) continue;
+        const liqInfo = evaluateObLiquidity(candidate, candlesAll, analysis, plan.sl, plan.target);
+        if (!liqInfo.liqAligned) {
+            if (!skippedReason) skippedReason = 'OB skipped — no prior liquidity sweep or unswept BSL/SSL target pool.';
+            continue;
+        }
         const obCandle = candlesAll[candidate.startIdx];
         const sameDayOb = Boolean(obCandle && obCandle.ymd === latestYmd);
-        const rankScore = plan.distPct - (sameDayOb ? 0.06 : 0) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
-        rankedPlans.push({ candidate, plan, rankScore, sameDayOb });
+        const rankScore = plan.distPct - (liqInfo.hasSweep ? 0.08 : 0) - (liqInfo.hasLiqDraw ? 0.05 : 0) - (sameDayOb ? 0.06 : 0) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+        rankedPlans.push({ candidate, plan, liqInfo, rankScore, sameDayOb });
     }
     rankedPlans.sort((a, b) => a.rankScore - b.rankScore);
     if (rankedPlans.length) {
-        const { candidate, plan, sameDayOb } = rankedPlans[0];
+        const { candidate, plan, liqInfo, sameDayOb } = rankedPlans[0];
         planRawOb = candidate;
         const lastRaw = candlesAll[candlesAll.length - 1];
         const prevRaw = candlesAll[candlesAll.length - 2];
@@ -2968,12 +3051,18 @@ async function getStockChartAnalysis(symbol, opts = {}) {
             sessionOk: entryState.sessionOk,
             windowLabel: entryState.windowLabel,
             sameDayOb,
+            hasSweep: liqInfo.hasSweep,
+            sweepLabel: liqInfo.sweepLabel,
+            hasLiqDraw: liqInfo.hasLiqDraw,
+            liqTargetLabel: liqInfo.liqTargetLabel,
+            stopHuntWarning: liqInfo.stopHuntWarning,
+            trapLabel: liqInfo.trapLabel,
             bot: candidate.bot,
             top: candidate.top,
             status: candidate.status.toUpperCase(),
             tests: candidate.tests,
             hasFvg: Boolean(candidate.hasFvg),
-            note: entryState.entryHint + (plan.inside
+            note: entryState.entryHint + (liqInfo.hasSweep ? ` ${liqInfo.sweepLabel}.` : '') + (liqInfo.liqTargetLabel ? ` Target draw: ${liqInfo.liqTargetLabel}.` : '') + (plan.inside
                 ? ` Zone ${Number(candidate.bot).toFixed(2)}–${Number(candidate.top).toFixed(2)}.`
                 : ` ${plan.distPct}% away — limit watch near ${Number(plan.entry).toFixed(2)}.`)
         };
@@ -3011,11 +3100,12 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         { label: 'VWAP', ok: desiredBull ? aboveVwap === true : aboveVwap === false },
         { label: 'EMA 20', ok: desiredBull ? aboveEma20 === true : aboveEma20 === false },
         { label: 'ORB 15m', ok: orbState ? (desiredBull ? orbState === 'Above ORB' : orbState === 'Below ORB') : false },
-        { label: 'OB / FVG', ok: Boolean(tradePlan && (tradePlan.status === 'FRESH' || tradePlan.hasFvg)) }
+        { label: 'OB / FVG', ok: Boolean(tradePlan && (tradePlan.status === 'FRESH' || tradePlan.hasFvg)) },
+        { label: 'Liq Sweep/Draw', ok: Boolean(tradePlan && (tradePlan.hasSweep || tradePlan.hasLiqDraw)) }
     ];
     const confScore = checks.filter(c => c.ok).length;
     const confVerdict = tradePlan
-        ? (confScore >= 4 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Wait / Partial'))
+        ? (confScore >= 5 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Wait / Partial'))
         : 'Wait for Setup';
 
     const strengthBias = tradePlan
@@ -3204,7 +3294,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     maxDistPct: 1.0
                 };
 
-                // Keep ONLY stocks with a valid, trend & VWAP aligned FRESH Order Block near price
+                // Keep ONLY stocks with a valid, trend, VWAP & liquidity-aligned FRESH Order Block near price
                 let best = null;
                 for (const ob of unbrokenOBs) {
                     const plan = buildObTradePlan(
@@ -3218,16 +3308,18 @@ async function scanNifty50OrderBlocks(opts = {}) {
                         baseCtx
                     );
                     if (!plan || plan.distPct > 1.0) continue;
+                    const liqInfo = evaluateObLiquidity(ob, candles, analysis, plan.sl, plan.target);
+                    if (!liqInfo.liqAligned) continue;
                     const obCandle = candles[ob.startIdx];
                     const sameDayOb = Boolean(obCandle && obCandle.ymd === lastBar.ymd);
-                    const rankScore = plan.distPct - (sameDayOb ? 0.06 : 0) - (ob.hasFvg ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+                    const rankScore = plan.distPct - (liqInfo.hasSweep ? 0.08 : 0) - (liqInfo.hasLiqDraw ? 0.05 : 0) - (sameDayOb ? 0.06 : 0) - (ob.hasFvg ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
                     if (!best || rankScore < best.rankScore) {
-                        best = { ob, plan, rankScore, sameDayOb };
+                        best = { ob, plan, liqInfo, rankScore, sameDayOb };
                     }
                 }
                 if (!best) return null;
 
-                const { ob, plan, sameDayOb } = best;
+                const { ob, plan, liqInfo, sameDayOb } = best;
                 const entryState = evaluateObEntryState(ob, lastBar, prevBar, tf, plan.distPct, plan.inside, marketOpen);
                 const oppLabel = entryState.confirmed
                     ? 'CONFIRMED'
@@ -3258,6 +3350,12 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     sessionOk: entryState.sessionOk,
                     windowLabel: entryState.windowLabel,
                     sameDayOb,
+                    hasSweep: liqInfo.hasSweep,
+                    sweepLabel: liqInfo.sweepLabel,
+                    hasLiqDraw: liqInfo.hasLiqDraw,
+                    liqTargetLabel: liqInfo.liqTargetLabel,
+                    stopHuntWarning: liqInfo.stopHuntWarning,
+                    trapLabel: liqInfo.trapLabel,
                     status: ob.status.toUpperCase(),
                     tests: ob.tests,
                     hasFvg: Boolean(ob.hasFvg),
@@ -3278,7 +3376,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
             }
         });
 
-        // Confirm higher timeframe (15m / 1h) alignment & compute 5-point confluence matching stock X-Ray 1:1
+        // Confirm higher timeframe (15m / 1h) alignment & compute 6-point confluence matching stock X-Ray 1:1
         const confirmed = await mapWithConcurrency(rows.filter(Boolean), 5, async (item) => {
             try {
                 const [c15, c1h] = await Promise.all([
@@ -3302,10 +3400,11 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     { label: 'VWAP', ok: desiredBull ? item.aboveVwap === true : item.aboveVwap === false },
                     { label: 'EMA 20', ok: desiredBull ? item.aboveEma20 === true : item.aboveEma20 === false },
                     { label: 'ORB 15m', ok: item.orbState ? (desiredBull ? item.orbState === 'Above ORB' : item.orbState === 'Below ORB') : false },
-                    { label: 'OB / FVG', ok: Boolean(item.status === 'FRESH' || item.hasFvg) }
+                    { label: 'OB / FVG', ok: Boolean(item.status === 'FRESH' || item.hasFvg) },
+                    { label: 'Liq Sweep/Draw', ok: Boolean(item.hasSweep || item.hasLiqDraw) }
                 ];
                 const confScore = checks.filter(c => c.ok).length;
-                const confVerdict = confScore >= 4 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Partial');
+                const confVerdict = confScore >= 5 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Partial');
 
                 const { upstoxKey, ...cleanItem } = item;
                 return {
