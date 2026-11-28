@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
-const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, getStockChartAnalysis, scanNifty50OrderBlocks, isMarketOpenIST } = require('./upstoxMarket');
+const { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, getStockChartAnalysis, scanNifty50OrderBlocks, getStockOptionChain, isMarketOpenIST } = require('./upstoxMarket');
 const {
     loadTelegramState,
     verifyTelegramBot,
@@ -373,6 +373,22 @@ app.get('/api/xray/ob-radar', async (req, res) => {
         res.json({ success: true, ...data });
     } catch (err) {
         res.status(502).json({ success: false, error: err?.message || 'Failed to scan NIFTY 50 Order Blocks' });
+    }
+});
+
+app.get('/api/xray/option-chain/:symbol', async (req, res) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    try {
+        const expiry = req.query.expiry || '';
+        const force = req.query.force === '1';
+        const data = await getStockOptionChain(req.params.symbol, {
+            expiry,
+            force,
+            token: appConfig.upstoxToken
+        });
+        res.json({ success: true, ...data });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err?.message || 'Could not load stock option chain' });
     }
 });
 let upstoxState = {

@@ -1443,7 +1443,11 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         sideways,
         days: last3Days.map(formatDayLabel),
         dayCounts,
-        candles: chartCandles.map(({ o, h, l, c }) => ({ o, h, l, c })),
+        candles: chartCandles.map(({ o, h, l, c, ts, ymd }) => ({
+            o, h, l, c,
+            time: ts ? formatBarTimeIST(ts) : '',
+            day: ymd ? formatDayShortIST(ymd) : ''
+        })),
         hma,
         st,
         marks: signalsEnabled ? replay.marks : [],
@@ -3716,11 +3720,243 @@ async function scanNifty50OrderBlocks(opts = {}) {
     }
 }
 
+const stockContractsCache = new Map();
+const stockOptionChainCache = new Map();
+
+async function getStockOptionChain(symbol, opts = {}) {
+    const rawSym = String(symbol || '').trim().toUpperCase();
+    const matched = NIFTY_50_STOCKS.find(s => s.symbol.toUpperCase() === rawSym)
+        || INSTRUMENTS.map(i => ({ symbol: i.key, sector: 'Index', upstoxKey: i.upstoxKey })).find(i => i.symbol === rawSym);
+    if (!matched) throw new Error(`Unknown F&O symbol: ${symbol}`);
+
+    const token = opts.token || '';
+    if (!token) throw new Error('Valid Upstox Access Token required to load live option chain.');
+
+    const ist = getISTParts(new Date());
+    const reqExpiry = String(opts.expiry || '').trim();
+    const force = Boolean(opts.force);
+    const tokTail = token.slice(-8);
+
+    // 1. Fetch/cache contracts list for expiries + lot_size
+    const cKey = `${matched.upstoxKey}:${tokTail}`;
+    let cMeta = stockContractsCache.get(cKey);
+    if (force || !cMeta || (Date.now() - cMeta.ts) > 600000) {
+        const contracts = await fetchJson(`${UPSTOX_V2}/option/contract?instrument_key=${encodeURIComponent(matched.upstoxKey)}`, token);
+        const list = Array.isArray(contracts?.data) ? contracts.data : [];
+        const expiries = [...new Set(list.map(c => c.expiry).filter(Boolean))].sort();
+        const activeExpiries = expiries.filter(e => e >= ist.ymd);
+        const finalExpiries = activeExpiries.length ? activeExpiries : expiries;
+        if (!finalExpiries.length) {
+            throw new Error(`No active option contracts found for ${matched.symbol}`);
+        }
+        const sampleLot = Number(list.find(c => Number(c.lot_size) > 0)?.lot_size || list.find(c => Number(c.minimum_lot) > 0)?.minimum_lot || 1);
+        cMeta = { ts: Date.now(), expiries: finalExpiries.slice(0, 6), lotSize: sampleLot };
+        stockContractsCache.set(cKey, cMeta);
+    }
+
+    const expiry = (reqExpiry && cMeta.expiries.includes(reqExpiry)) ? reqExpiry : cMeta.expiries[0];
+    const cacheKey = `${matched.symbol}:${expiry}:${tokTail}`;
+    const hit = stockOptionChainCache.get(cacheKey);
+    const ttl = isMarketOpenIST() ? 20000 : 120000;
+    if (!force && hit && (Date.now() - hit.ts) < ttl) {
+        return hit.data;
+    }
+
+    const chainResp = await fetchJson(
+        `${UPSTOX_V2}/option/chain?instrument_key=${encodeURIComponent(matched.upstoxKey)}&expiry_date=${encodeURIComponent(expiry)}`,
+        token
+    );
+    const rows = Array.isArray(chainResp?.data) ? chainResp.data : [];
+    if (!rows.length) throw new Error(`Empty option chain returned for ${matched.symbol} (${expiry})`);
+
+    const sorted = [...rows].sort((a, b) => a.strike_price - b.strike_price);
+    const spotFromChain = Number(sorted.find(r => Number(r.underlying_spot_price) > 0)?.underlying_spot_price || 0);
+    const spotPrice = spotFromChain > 0 ? r2(spotFromChain) : Number(opts.spotPrice || 0);
+
+    let atmIdx = 0, bestDiff = Infinity;
+    sorted.forEach((row, i) => {
+        const d = Math.abs(row.strike_price - spotPrice);
+        if (d < bestDiff) { bestDiff = d; atmIdx = i; }
+    });
+    const atmStrike = sorted[atmIdx]?.strike_price || spotPrice;
+    const strikeStep = sorted.length > 1 ? Math.abs(sorted[Math.min(sorted.length - 1, atmIdx + 1)].strike_price - sorted[Math.max(0, atmIdx + 1 - 1)].strike_price) : 0;
+
+    let totalCallOI = 0, totalPutOI = 0, totalCallAdd = 0, totalPutAdd = 0;
+    let maxCallOI = -1, callWall = null, maxPutOI = -1, putWall = null;
+    let gexSum = 0;
+    let call25Iv = null, call25Diff = Infinity, put25Iv = null, put25Diff = Infinity;
+
+    for (const r of sorted) {
+        const cm = r.call_options?.market_data || {};
+        const pm = r.put_options?.market_data || {};
+        const cg = r.call_options?.option_greeks || {};
+        const pg = r.put_options?.option_greeks || {};
+        const cOI = Number(cm.oi || 0);
+        const pOI = Number(pm.oi || 0);
+        totalCallOI += cOI;
+        totalPutOI += pOI;
+        totalCallAdd += (cOI - Number(cm.prev_oi ?? cOI));
+        totalPutAdd += (pOI - Number(pm.prev_oi ?? pOI));
+        if (cOI > maxCallOI) { maxCallOI = cOI; callWall = r.strike_price; }
+        if (pOI > maxPutOI) { maxPutOI = pOI; putWall = r.strike_price; }
+
+        const cGamma = Number(cg.gamma || 0);
+        const pGamma = Number(pg.gamma || 0);
+        gexSum += (cGamma * cOI - pGamma * pOI) * spotPrice * spotPrice * 0.01;
+
+        if (cg.delta != null && cg.iv) {
+            const d = Math.abs(Math.abs(Number(cg.delta)) - 0.25);
+            if (d < call25Diff) { call25Diff = d; call25Iv = Number(cg.iv); }
+        }
+        if (pg.delta != null && pg.iv) {
+            const d = Math.abs(Math.abs(Number(pg.delta)) - 0.25);
+            if (d < put25Diff) { put25Diff = d; put25Iv = Number(pg.iv); }
+        }
+    }
+
+    const nearRows = sorted.slice(Math.max(0, atmIdx - 4), Math.min(sorted.length, atmIdx + 5));
+    const nearCallOI = nearRows.reduce((s, r) => s + Number(r.call_options?.market_data?.oi || 0), 0);
+    const nearPutOI = nearRows.reduce((s, r) => s + Number(r.put_options?.market_data?.oi || 0), 0);
+    const nearCallAdd = nearRows.reduce((s, r) => {
+        const oi = Number(r.call_options?.market_data?.oi || 0);
+        return s + (oi - Number(r.call_options?.market_data?.prev_oi ?? oi));
+    }, 0);
+    const nearPutAdd = nearRows.reduce((s, r) => {
+        const oi = Number(r.put_options?.market_data?.oi || 0);
+        return s + (oi - Number(r.put_options?.market_data?.prev_oi ?? oi));
+    }, 0);
+
+    const pcrTotal = totalCallOI > 0 ? r2(totalPutOI / totalCallOI) : 0;
+    const pcrAtm = nearCallOI > 0 ? r2(nearPutOI / nearCallOI) : 0;
+
+    let maxPain = atmStrike;
+    let minPayout = Infinity;
+    for (const cand of sorted.slice(Math.max(0, atmIdx - 14), Math.min(sorted.length, atmIdx + 15))) {
+        const k = cand.strike_price;
+        let payout = 0;
+        for (const r of sorted) {
+            const cOI = Number(r.call_options?.market_data?.oi || 0);
+            const pOI = Number(r.put_options?.market_data?.oi || 0);
+            if (k > r.strike_price) payout += (k - r.strike_price) * cOI;
+            if (k < r.strike_price) payout += (r.strike_price - k) * pOI;
+        }
+        if (payout < minPayout) { minPayout = payout; maxPain = k; }
+    }
+
+    const atmRow = sorted[atmIdx];
+    const atmCallIv = Number(atmRow?.call_options?.option_greeks?.iv || 0);
+    const atmPutIv = Number(atmRow?.put_options?.option_greeks?.iv || 0);
+    const atmIv = (atmCallIv && atmPutIv) ? r1((atmCallIv + atmPutIv) / 2) : r1(atmCallIv || atmPutIv || 0);
+
+    const lotSize = cMeta.lotSize || 1;
+    const parseLeg = (leg) => {
+        const md = leg?.market_data || {};
+        const gk = leg?.option_greeks || {};
+        const ltp = r2(Number(md.ltp || 0));
+        const bid = r2(Number(md.bid_price || 0));
+        const ask = r2(Number(md.ask_price || 0));
+        const spreadPct = (ltp > 0 && ask >= bid && bid > 0) ? r1(((ask - bid) / ltp) * 100) : null;
+        const oi = Math.round(Number(md.oi || 0));
+        const prevOi = Math.round(Number(md.prev_oi ?? oi));
+        const dOi = oi - prevOi;
+        const volume = Math.round(Number(md.volume || 0));
+        const delta = gk.delta != null ? r2(Number(gk.delta)) : null;
+        const theta = gk.theta != null ? r2(Number(gk.theta)) : null;
+        const gamma = gk.gamma != null ? Number(Number(gk.gamma).toFixed(4)) : null;
+        const vega = gk.vega != null ? r2(Number(gk.vega)) : null;
+        const iv = gk.iv != null ? r1(Number(gk.iv)) : null;
+        const buyerPop = gk.pop != null ? Number(gk.pop) : (delta != null ? Math.abs(delta) * 100 : null);
+        const sellerPop = buyerPop != null ? r1(Math.max(1, Math.min(99, 100 - buyerPop))) : null;
+        const sellRef = bid > 0 ? bid : ltp;
+        const creditPerLot = Math.round(sellRef * lotSize);
+        const dailyThetaPerLot = theta != null ? Math.round(Math.abs(theta) * lotSize) : null;
+        const liquid = (oi > 0 && ltp > 0) && (spreadPct == null || spreadPct <= 8);
+        return {
+            instrumentKey: leg?.instrument_key || null,
+            ltp,
+            bid,
+            ask,
+            spreadPct,
+            volume,
+            oi,
+            prevOi,
+            dOi,
+            iv,
+            delta,
+            theta,
+            gamma,
+            vega,
+            sellerPop,
+            creditPerLot,
+            dailyThetaPerLot,
+            liquid
+        };
+    };
+
+    const windowRows = sorted.slice(Math.max(0, atmIdx - 10), Math.min(sorted.length, atmIdx + 11));
+    const strikes = windowRows.map(r => ({
+        strike: r.strike_price,
+        isAtm: r.strike_price === atmStrike,
+        isPutWall: r.strike_price === putWall,
+        isCallWall: r.strike_price === callWall,
+        distPct: spotPrice > 0 ? r2(((r.strike_price - spotPrice) / spotPrice) * 100) : 0,
+        pcr: r.pcr != null ? r2(Number(r.pcr)) : null,
+        ce: parseLeg(r.call_options),
+        pe: parseLeg(r.put_options)
+    }));
+
+    const ladder = strikes.map(s => ({
+        strike: s.strike,
+        call: s.ce.oi,
+        put: s.pe.oi,
+        callAdd: s.ce.dOi,
+        putAdd: s.pe.dOi
+    }));
+
+    const result = {
+        symbol: matched.symbol,
+        sector: matched.sector,
+        upstoxKey: matched.upstoxKey,
+        expiry,
+        expiries: cMeta.expiries,
+        lotSize,
+        spotPrice,
+        atmStrike,
+        strikeStep,
+        pcrAtm,
+        pcrTotal,
+        pcrAtmTone: pcrAtm < 0.9 ? 'dn' : pcrAtm > 1.1 ? 'up' : '',
+        pcrTotalTone: pcrTotal < 0.9 ? 'dn' : pcrTotal > 1.1 ? 'up' : '',
+        putWall,
+        putWallOi: maxPutOI > 0 ? Math.round(maxPutOI) : 0,
+        callWall,
+        callWallOi: maxCallOI > 0 ? Math.round(maxCallOI) : 0,
+        maxPain,
+        atmIv,
+        oiCE: formatLakhs(totalCallAdd),
+        oiPE: formatLakhs(totalPutAdd),
+        nearOiCE: formatLakhs(nearCallAdd),
+        nearOiPE: formatLakhs(nearPutAdd),
+        rawOiCE: Math.round(totalCallAdd),
+        rawOiPE: Math.round(totalPutAdd),
+        gexCr: r1(gexSum / 1e7),
+        skew: (put25Iv != null && call25Iv != null) ? { put25Iv: r1(put25Iv), call25Iv: r1(call25Iv), diff: r1(put25Iv - call25Iv) } : null,
+        fetchedAt: new Date().toISOString(),
+        strikes,
+        ladder
+    };
+
+    stockOptionChainCache.set(cacheKey, { ts: Date.now(), data: result });
+    return result;
+}
+
 function clearMarketCache() {
     cache.clear();
     stockChartCache.clear();
     obScanCache.clear();
+    stockOptionChainCache.clear();
+    stockContractsCache.clear();
     lastXraySnapshot = { ts: 0, tokenTail: '', data: null };
 }
 
-module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, isMarketOpenIST, getStockChartAnalysis, scanNifty50OrderBlocks };
+module.exports = { getLiveMarketSnapshot, clearMarketCache, runBacktestSimulation, fetchUpstoxBrokerJournal, isMarketOpenIST, getStockChartAnalysis, scanNifty50OrderBlocks, getStockOptionChain };
