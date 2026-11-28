@@ -419,7 +419,8 @@ function computeHourlyTrend(candles15m) {
     return { dir: 'NEUTRAL', note: `1-hour close (${r2(last)}) vs 5-bar SMA (${r2(sma5)}) mixed/flat` };
 }
 
-function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLatest, daily, fullHma, fullSt) {
+function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLatest, daily, fullHma, fullSt, maxSignalIdx = fullCandles.length - 1) {
+    const evalEndIdx = Math.min(maxSignalIdx, fullCandles.length - 1);
     const signals = [];
     const marks = [];
     const exits = [];
@@ -494,7 +495,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         pos = null;
     };
 
-    for (let i = 14; i < fullCandles.length; i++) {
+    for (let i = 14; i <= evalEndIdx; i++) {
         const c = fullCandles[i];
         const chartIdx = i - offsetInFull;
         const hm = String(c.ts).slice(11, 16);
@@ -599,25 +600,39 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
 
         const stUp = fullSt[i]?.up;
 
-        // Check active position SL / TP1, then protected trendline break exit on candle close
+        // Check active position SL/BE / TP1, then protected trendline break exit on candle close
         if (pos) {
             if (pos.side === 'SELL PE') {
                 const tlProtected = (c.c - pos.ref) >= 0.4 * pos.risk || stUp === false;
                 if (c.l <= pos.sl) {
-                    closePos(i, pos.sl, 'SL', c.ts);
+                    closePos(i, pos.sl, pos.beMoved ? 'BE' : 'SL', c.ts);
                 } else if (c.h >= pos.tp1) {
                     closePos(i, pos.tp1, 'TP1', c.ts);
                 } else if (justBrokeUp && tlProtected) {
                     closePos(i, c.c, 'TL BREAK', c.ts);
+                } else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.h >= pos.ref + 0.70 * pos.risk) {
+                    pos.sl = pos.ref;
+                    pos.beMoved = true;
+                    if (pos.signalRef) {
+                        pos.signalRef.sl = pos.ref;
+                        pos.signalRef.beMoved = true;
+                    }
                 }
             } else {
                 const tlProtected = (pos.ref - c.c) >= 0.4 * pos.risk || stUp === true;
                 if (c.h >= pos.sl) {
-                    closePos(i, pos.sl, 'SL', c.ts);
+                    closePos(i, pos.sl, pos.beMoved ? 'BE' : 'SL', c.ts);
                 } else if (c.l <= pos.tp1) {
                     closePos(i, pos.tp1, 'TP1', c.ts);
                 } else if (justBrokeDown && tlProtected) {
                     closePos(i, c.c, 'TL BREAK', c.ts);
+                } else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.l <= pos.ref - 0.70 * pos.risk) {
+                    pos.sl = pos.ref;
+                    pos.beMoved = true;
+                    if (pos.signalRef) {
+                        pos.signalRef.sl = pos.ref;
+                        pos.signalRef.beMoved = true;
+                    }
                 }
             }
         }
@@ -672,8 +687,8 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref + risk * rr);
                     const setup = (longOB || longFVG) ? 'OB/FVG' : 'HMA-PB';
-                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup };
-                    pos = { side: 'SELL PE', ref, sl, tp1, risk, signalRef: sigRef };
+                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL PE', ref, sl, tp1, setup, beMoved: false };
+                    pos = { side: 'SELL PE', ref, sl, tp1, risk, setup, beMoved: false, signalRef: sigRef };
                     tradesToday += 1;
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'PE' });
@@ -692,8 +707,8 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 if (risk <= 4 * atr) {
                     const tp1 = Math.round(ref - risk * rr);
                     const setup = (shortOB || shortFVG) ? 'OB/FVG' : 'HMA-PB';
-                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup };
-                    pos = { side: 'SELL CE', ref, sl, tp1, risk, signalRef: sigRef };
+                    const sigRef = { ts: c.ts, time: formatSignalTime(c.ts), side: 'SELL CE', ref, sl, tp1, setup, beMoved: false };
+                    pos = { side: 'SELL CE', ref, sl, tp1, risk, setup, beMoved: false, signalRef: sigRef };
                     tradesToday += 1;
                     signals.unshift(sigRef);
                     marks.push({ i: chartIdx, side: 'CE' });
@@ -741,9 +756,9 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
         prevBearImp = bearImpulse;
     }
 
-    if (pos && chartCandles.length) {
-        const lastClose = chartCandles[chartCandles.length - 1].c;
-        paperPts += pos.side === 'SELL PE' ? (lastClose - pos.ref) : (pos.ref - lastClose);
+    if (pos && evalEndIdx >= 0 && fullCandles[evalEndIdx]) {
+        const lastEvalClose = fullCandles[evalEndIdx].c;
+        paperPts += pos.side === 'SELL PE' ? (lastEvalClose - pos.ref) : (pos.ref - lastEvalClose);
     }
 
     // Select the most recent UP and DOWN trendlines that appear in the 3-day chart window
@@ -918,6 +933,16 @@ async function fetchOptionChainData(upstoxKey, spotPrice, step, token, todayYmd)
         const nearRows = sorted.slice(Math.max(0, atmIdx - 5), Math.min(sorted.length, atmIdx + 6));
         const nearCallOI = nearRows.reduce((s, r) => s + Number(r.call_options?.market_data?.oi || 0), 0);
         const nearPutOI = nearRows.reduce((s, r) => s + Number(r.put_options?.market_data?.oi || 0), 0);
+        const nearCallAdd = nearRows.reduce((s, r) => {
+            const oi = Number(r.call_options?.market_data?.oi || 0);
+            const prev = Number(r.call_options?.market_data?.prev_oi ?? oi);
+            return s + (oi - prev);
+        }, 0);
+        const nearPutAdd = nearRows.reduce((s, r) => {
+            const oi = Number(r.put_options?.market_data?.oi || 0);
+            const prev = Number(r.put_options?.market_data?.prev_oi ?? oi);
+            return s + (oi - prev);
+        }, 0);
 
         const pcrTotal = totalCallOI > 0 ? r2(totalPutOI / totalCallOI) : 0;
         const pcrAtm = nearCallOI > 0 ? r2(nearPutOI / nearCallOI) : 0;
@@ -943,11 +968,19 @@ async function fetchOptionChainData(upstoxKey, spotPrice, step, token, todayYmd)
         const atmIv = (atmCallIv && atmPutIv) ? r1((atmCallIv + atmPutIv) / 2) : r1(atmCallIv || atmPutIv || 0);
 
         const ladderRows = sorted.slice(Math.max(0, atmIdx - 10), Math.min(sorted.length, atmIdx + 11));
-        const ladder = ladderRows.map(r => ({
-            strike: r.strike_price,
-            call: Math.round(Number(r.call_options?.market_data?.oi || 0)),
-            put: Math.round(Number(r.put_options?.market_data?.oi || 0))
-        }));
+        const ladder = ladderRows.map(r => {
+            const cOI = Number(r.call_options?.market_data?.oi || 0);
+            const pOI = Number(r.put_options?.market_data?.oi || 0);
+            const cPrev = Number(r.call_options?.market_data?.prev_oi ?? cOI);
+            const pPrev = Number(r.put_options?.market_data?.prev_oi ?? pOI);
+            return {
+                strike: r.strike_price,
+                call: Math.round(cOI),
+                put: Math.round(pOI),
+                callAdd: Math.round(cOI - cPrev),
+                putAdd: Math.round(pOI - pPrev)
+            };
+        });
 
         return {
             ok: true,
@@ -961,6 +994,12 @@ async function fetchOptionChainData(upstoxKey, spotPrice, step, token, todayYmd)
                 maxPain,
                 oiCE: formatLakhs(totalCallAdd),
                 oiPE: formatLakhs(totalPutAdd),
+                nearOiCE: formatLakhs(nearCallAdd),
+                nearOiPE: formatLakhs(nearPutAdd),
+                rawOiCE: Math.round(totalCallAdd),
+                rawOiPE: Math.round(totalPutAdd),
+                rawNearOiCE: Math.round(nearCallAdd),
+                rawNearOiPE: Math.round(nearPutAdd),
                 atmIv,
                 expiry,
                 ladder
@@ -1052,6 +1091,11 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
 
     const latestBar = candles15m[candles15m.length - 1];
     const latestYmd = latestBar.ymd;
+    const latestBarStartMs = Date.parse(latestBar.ts);
+    const hasUnclosedBar = candles15m.length >= 16 && Number.isFinite(latestBarStartMs) && Date.now() < (latestBarStartMs + 15 * 60 * 1000);
+    const lastClosedIdx = hasUnclosedBar ? candles15m.length - 2 : candles15m.length - 1;
+    const lastClosedBar = candles15m[lastClosedIdx];
+    const closedCandles15m = candles15m.slice(0, lastClosedIdx + 1);
 
     // Identify last 3 trading days present in 15m data
     const uniqueDays = [...new Set(candles15m.map(c => c.ymd))];
@@ -1070,23 +1114,24 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const change = liveQ?.net_change != null ? r2(liveQ.net_change) : r2(spotPrice - prevClose);
     const changePct = prevClose ? r2((change / prevClose) * 100) : 0;
 
-    // Indicators over full 15m history, then sliced to chartCandles
+    // Indicators over full 15m history (signals & indicator state anchored to last completed 15m bar)
     const fullCloses = candles15m.map(c => c.c);
     const fullHma = computeHMA(fullCloses);
     const fullSt = computeSupertrend(candles15m, 10, 3);
     const hma = fullHma.slice(offsetInFull);
     const st = fullSt.slice(offsetInFull);
 
-    const latestSt = st[st.length - 1];
+    const closedChartIdx = Math.max(0, lastClosedIdx - offsetInFull);
+    const latestSt = st[closedChartIdx] || st[st.length - 1];
     const supertrend = latestSt ? (latestSt.up ? 'UP' : 'DOWN') : 'NEUTRAL';
 
-    const hmaLast = hma[hma.length - 1];
-    const hmaPrev = hma[hma.length - 5];
+    const hmaLast = hma[closedChartIdx];
+    const hmaPrev = hma[Math.max(0, closedChartIdx - 4)];
     const hmaMove = (hmaLast != null && hmaPrev != null) ? (hmaLast - hmaPrev) : 0;
     const hmaSlope = Math.abs(hmaMove) < 1 ? 'FLAT' : (hmaMove > 0 ? 'UP' : 'DOWN');
 
-    const adx = computeADX(candles15m, 14);
-    const atr = computeATR(candles15m, 14);
+    const adx = computeADX(closedCandles15m, 14);
+    const atr = computeATR(closedCandles15m, 14);
 
     // Pivots & CPR
     const { levels, pivot, cprTop, cprBot, r1, s1 } = buildLevels(prevDay, spotPrice);
@@ -1122,6 +1167,12 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     const posGex = optRes.ok && optRes.gexCr >= 0;
     const negGex = optRes.ok && optRes.gexCr < 0;
     const narrowCpr = medianCprPct > 0 && cprWidthPct <= medianCprPct;
+    const veryNarrowCpr = medianCprPct > 0 && cprWidthPct <= medianCprPct * 0.70;
+    const closedTodayBars = closedCandles15m.filter(c => c.ymd === latestYmd);
+    const orbBars = closedTodayBars.slice(0, 2); // First 30m opening range
+    const orbHigh = orbBars.length >= 2 ? Math.max(...orbBars.map(b => b.h)) : null;
+    const orbLow = orbBars.length >= 2 ? Math.min(...orbBars.map(b => b.l)) : null;
+    const outsideEarlyOrb = orbHigh != null && orbLow != null && (spotPrice > orbHigh || spotPrice < orbLow);
     const insideS1R1 = spotPrice >= s1 && spotPrice <= r1;
     const trendBreak = (spotPrice > cprTop && supertrend === 'UP' && hmaSlope === 'UP')
         || (spotPrice < cprBot && supertrend === 'DOWN' && hmaSlope === 'DOWN');
@@ -1133,7 +1184,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         {
             pass: cprWidthPct > medianCprPct,
             name: 'Wide CPR (range-day sign)',
-            note: `CPR width ${cprWidthPct.toFixed(2)}% vs 20-day median ${medianCprPct.toFixed(2)}%${narrowCpr ? ' (NARROW — breakout risk)' : ''}`
+            note: `CPR width ${cprWidthPct.toFixed(2)}% vs 20-day median ${medianCprPct.toFixed(2)}%${veryNarrowCpr ? ' (VERY NARROW — breakout coil)' : narrowCpr ? ' (NARROW — breakout risk)' : ''}`
         },
         {
             pass: posGex,
@@ -1143,11 +1194,13 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
                 : `Unavailable (${optRes.error})`
         },
         {
-            pass: adx < 22 && !strongDirBreak,
-            name: 'Weak trend (ADX < 22, no breakout)',
+            pass: adx < 22 && !strongDirBreak && !(veryNarrowCpr && outsideEarlyOrb),
+            name: 'Weak trend (ADX < 22, no ORB/CPR breakout)',
             note: strongDirBreak
                 ? `ADX ${adx} LAGGING — active ${bullBreakout ? 'bullish' : 'bearish'} breakout above/below CPR & Prev H/L`
-                : `ADX ${adx}`
+                : (veryNarrowCpr && outsideEarlyOrb)
+                    ? `ADX ${adx} lagging — Narrow CPR broke 30m ORB (${Math.round(orbLow).toLocaleString('en-IN')}–${Math.round(orbHigh).toLocaleString('en-IN')})`
+                    : `ADX ${adx}`
         },
         {
             pass: insideS1R1,
@@ -1172,7 +1225,7 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     ];
     const score = checks.filter(c => c.pass).length;
     const breakoutRisk = insideS1R1 && !strongDirBreak && (negGex || narrowCpr || trendBreak);
-    const isTrueRangeBound = score >= 5 && insideS1R1 && !negGex && !strongDirBreak && (!narrowCpr || (adx < 20 && !trendBreak));
+    const isTrueRangeBound = score >= 5 && insideS1R1 && !negGex && !strongDirBreak && !veryNarrowCpr && (!narrowCpr || (adx < 20 && !trendBreak));
 
     let swLabel = 'MIXED / CHOPPY';
     let swTone = 'mid';
@@ -1194,15 +1247,15 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
             : strongDirBreak
                 ? `Price broke ${bullBreakout ? 'above CPR Top & Prev High' : 'below CPR Bottom & Prev Low'} with Supertrend ${supertrend}`
                 : 'Active trend breakout';
-        swSummary = `${breakReason} (ADX ${adx}${strongDirBreak && adx < 22 ? ' lagging' : ''}${negGex ? `, GEX ${optRes.gexCr} Cr` : ''}) — do NOT fade with naked option shorts.`;
+        swSummary = `${breakReason} (ADX ${adx}${strongDirBreak && adx < 22 ? ' lagging' : ''}${negGex ? `, GEX ${optRes.gexCr} Cr` : ''}) — do NOT fade or average naked option shorts.`;
     } else if (breakoutRisk) {
-        swLabel = 'BREAKOUT RISK — NOT SAFE SIDEWAYS';
+        swLabel = veryNarrowCpr ? 'BREAKOUT COIL (NARROW CPR) — NO NAKED SHORTS' : 'BREAKOUT RISK — NOT SAFE SIDEWAYS';
         swTone = 'dn';
         const reasons = [];
-        if (narrowCpr) reasons.push(`Narrow CPR (${cprWidthPct.toFixed(2)}% <= ${medianCprPct.toFixed(2)}%)`);
+        if (narrowCpr) reasons.push(`${veryNarrowCpr ? 'Very Narrow' : 'Narrow'} CPR (${cprWidthPct.toFixed(2)}% vs ${medianCprPct.toFixed(2)}% median)`);
         if (negGex) reasons.push(`Negative GEX (${optRes.gexCr} Cr)`);
         if (trendBreak) reasons.push(`Supertrend ${supertrend} & HMA ${hmaSlope} outside CPR`);
-        swSummary = `Quiet box so far, but ${reasons.join(' + ')} — avoid naked short strangles/condors.`;
+        swSummary = `Quiet box so far, but ${reasons.join(' + ')} — do NOT trust high score for naked strangles or averaging ITM shorts.`;
     }
 
     const sideways = {
@@ -1212,13 +1265,14 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         tone: swTone,
         isRangeBound: isTrueRangeBound,
         breakoutRisk,
+        veryNarrowCpr,
         rangeBand: `${Math.round(s1).toLocaleString('en-IN')} – ${Math.round(r1).toLocaleString('en-IN')}`,
         summary: swSummary,
         checks
     };
 
-    const hourly = computeHourlyTrend(candles15m);
-    const replay = computeSignalsAndReplay(chartCandles, candles15m, offsetInFull, atr, daily, fullHma, fullSt);
+    const hourly = computeHourlyTrend(closedCandles15m);
+    const replay = computeSignalsAndReplay(chartCandles, candles15m, offsetInFull, atr, daily, fullHma, fullSt, lastClosedIdx);
 
     // Seller advisory (real VIX + real GEX/skew when option chain is available)
     const seller = [];
@@ -1305,13 +1359,25 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
     if (optRes.ok) {
         const atmPcr = Number(chain.pcrAtm);
         const totPcr = Number(chain.pcrTotal);
-        if (atmPcr >= 1.15 && totPcr >= 0.95) {
+        const dCe = Number(chain.rawOiCE || 0);
+        const dPe = Number(chain.rawOiPE || 0);
+        const nCe = Number(chain.rawNearOiCE || 0);
+        const nPe = Number(chain.rawNearOiPE || 0);
+        const hniCallWrite = (nCe > 0 && nPe <= 0 && nCe >= 25000) || (dCe > 0 && dCe >= Math.max(50000, Math.abs(dPe) * 1.5) && dCe > dPe);
+        const hniPutWrite = (nPe > 0 && nCe <= 0 && nPe >= 25000) || (dPe > 0 && dPe >= Math.max(50000, Math.abs(dCe) * 1.5) && dPe > dCe);
+
+        if (hniPutWrite && !hniCallWrite) {
+            oiVote = 'BULL';
+        } else if (hniCallWrite && !hniPutWrite) {
+            oiVote = 'BEAR';
+        } else if (atmPcr >= 1.15 && totPcr >= 0.95) {
             oiVote = 'BULL';
         } else if (atmPcr <= 0.85 && totPcr <= 1.05) {
             oiVote = 'BEAR';
         }
+        const flowTag = hniCallWrite ? ' · ΔOI: HNI Call writing' : (hniPutWrite ? ' · ΔOI: HNI Put writing' : '');
         const mixedPcr = (atmPcr <= 0.85 && totPcr >= 1.15) || (atmPcr >= 1.15 && totPcr <= 0.85);
-        oiNote = `PCR ${chain.pcrAtm} (ATM) / ${chain.pcrTotal} (total)${mixedPcr ? ' [mixed: watch short-covering]' : ''}; Put wall ${chain.putWall}, Call wall ${chain.callWall}`;
+        oiNote = `ΔOI CE ${chain.oiCE || '-'} / PE ${chain.oiPE || '-'}${flowTag}; PCR ${chain.pcrAtm} (ATM) / ${chain.pcrTotal} (total)${mixedPcr ? ' [mixed]' : ''}; Put wall ${chain.putWall}, Call wall ${chain.callWall}`;
     }
     const levelVote = spotPrice > prevDay.h ? 'BULL' : spotPrice < prevDay.l ? 'BEAR' : 'NEUTRAL';
 
@@ -1390,9 +1456,10 @@ async function buildInstrumentData(inst, todayYmd, quotes, vixInfo, token, mode 
         levels,
         why: { pe: peText, ce: ceText },
         signals: signalsEnabled ? replay.signals : [],
-        latestTs: latestBar.ts,
-        latestBarTime: formatAsOf(latestBar.ts),
-        latestBarClose: r2(latestBar.c)
+        latestTs: lastClosedBar.ts,
+        latestBarTime: formatAsOf(lastClosedBar.ts),
+        latestBarClose: r2(lastClosedBar.c),
+        hasFormingBar: hasUnclosedBar
     };
 }
 
@@ -1478,14 +1545,53 @@ async function fetchKeyPriceChange(upstoxKey, todayYmd, batchQuotes, marketOpen)
     return { price: r2(latest.c), prevClose: r2(prev.c), change, changePct };
 }
 
+function buildIntradayPctCurve(candles, prevClose) {
+    if (!Array.isArray(candles) || !candles.length || !prevClose) return [];
+    const lastYmd = candles[candles.length - 1]?.ymd;
+    if (!lastYmd) return [];
+    return candles
+        .filter(c => c.ymd === lastYmd)
+        .map(c => ({
+            hm: formatBarTimeIST(c.ts),
+            pct: r2(((c.c - prevClose) / prevClose) * 100)
+        }));
+}
+
+function buildVolumeProfileBins(candles, bins = 14) {
+    if (!Array.isArray(candles) || !candles.length) return [];
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const c of candles) {
+        if (c.l < lo) lo = c.l;
+        if (c.h > hi) hi = c.h;
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return [];
+    const step = (hi - lo) / bins;
+    const out = Array.from({ length: bins }, (_, idx) => ({
+        low: r2(lo + idx * step),
+        high: r2(lo + (idx + 1) * step),
+        mid: r2(lo + (idx + 0.5) * step),
+        bullVol: 0,
+        bearVol: 0
+    }));
+    for (const c of candles) {
+        const mid = (c.h + c.l + c.c) / 3;
+        const bi = Math.max(0, Math.min(bins - 1, Math.floor((mid - lo) / step)));
+        const vol = Number(c.v || 0) > 0 ? Number(c.v) : Math.max(1, Math.round((c.h - c.l) * 100));
+        if (c.c >= c.o) out[bi].bullVol += vol;
+        else out[bi].bearVol += vol;
+    }
+    return out;
+}
+
 async function fetchMarketXRay(todayYmd, token, marketOpen) {
-    const allKeys = [...NIFTY_50_STOCKS.map(s => s.upstoxKey), ...SECTOR_INDICES.map(s => s.upstoxKey)];
+    const allKeys = [...NIFTY_50_STOCKS.map(s => s.upstoxKey), ...SECTOR_INDICES.map(s => s.upstoxKey), INSTRUMENTS[0].upstoxKey];
     const batchQuotes = await fetchBatchQuotes(allKeys, token);
 
     const flatBand = 0.15;
     const classify = (pct) => pct > flatBand ? 'UP' : pct < -flatBand ? 'LOW' : 'NEUTRAL';
 
-    const [stockRows, sectorRows] = await Promise.all([
+    const [stockRows, sectorRows, niftyPriceInfo, nifty15m] = await Promise.all([
         mapWithConcurrency(NIFTY_50_STOCKS, 5, async (st) => {
             const p = await fetchKeyPriceChange(st.upstoxKey, todayYmd, batchQuotes, marketOpen);
             if (!p) return null;
@@ -1502,15 +1608,21 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
         mapWithConcurrency(SECTOR_INDICES, 4, async (sec) => {
             const p = await fetchKeyPriceChange(sec.upstoxKey, todayYmd, batchQuotes, marketOpen);
             if (!p) return null;
+            const c15 = await fetchCandlesTf(sec.upstoxKey, todayYmd, '15m', 4).catch(() => []);
+            const curve = buildIntradayPctCurve(c15, p.prevClose);
             return {
                 name: sec.name,
                 matchSector: sec.matchSector,
                 price: p.price,
+                prevClose: p.prevClose,
                 change: p.change,
                 changePct: p.changePct,
-                status: p.changePct > flatBand ? 'BULL' : p.changePct < -flatBand ? 'BEAR' : 'NEUTRAL'
+                status: p.changePct > flatBand ? 'BULL' : p.changePct < -flatBand ? 'BEAR' : 'NEUTRAL',
+                curve
             };
-        })
+        }),
+        fetchKeyPriceChange(INSTRUMENTS[0].upstoxKey, todayYmd, batchQuotes, marketOpen),
+        fetchCandlesTf(INSTRUMENTS[0].upstoxKey, todayYmd, '15m', 4).catch(() => [])
     ]);
 
     const stocks = stockRows.filter(Boolean);
@@ -1535,6 +1647,7 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
             change: sec.change,
             changePct: sec.changePct,
             status: sec.status,
+            curve: sec.curve || [],
             breadth: members.length ? {
                 up: members.filter(m => m.status === 'UP').length,
                 low: members.filter(m => m.status === 'LOW').length,
@@ -1552,6 +1665,89 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
         stockMap
     }).catch(() => null);
 
+    // Pick top 2 Bullish + top 2 Bearish featured setups (prioritize actionable OB setups, fill from movers)
+    const obItems = nearOrderBlocks?.items || [];
+    const pickFeatured = (dir) => {
+        const obMatches = obItems.filter(i => (dir === 'BULL' ? i.action === 'BUY' : i.action === 'SELL')).map(i => i.symbol);
+        const movers = (dir === 'BULL' ? sortedDesc : sortedAsc).map(s => s.symbol);
+        const out = [];
+        for (const sym of [...obMatches, ...movers]) {
+            if (sym && !out.includes(sym)) out.push(sym);
+            if (out.length >= 2) break;
+        }
+        return out;
+    };
+    const bullSyms = pickFeatured('BULL');
+    const bearSyms = pickFeatured('BEAR');
+
+    const buildFeatured = async (sym, sideHint) => {
+        try {
+            const detail = await getStockChartAnalysis(sym, { timeframe: '5m', days: 1, token });
+            const rawCandles = (detail.candles || []);
+            const latestDay = rawCandles[rawCandles.length - 1]?.ymd;
+            const dayBars = latestDay ? rawCandles.filter(c => c.ymd === latestDay) : rawCandles;
+            const sampleBars = (dayBars.length >= 8 ? dayBars : rawCandles).slice(-32);
+            const tp = detail.tradePlan;
+            const ob = (detail.orderBlocks || [])[0] || null;
+            const side = tp ? (tp.action === 'BUY' ? 'BULL' : 'BEAR') : (detail.changePct >= 0 ? 'BULL' : (sideHint || 'BEAR'));
+            const buildUpLabel = tp
+                ? (tp.confirmed ? `${side === 'BULL' ? 'Long' : 'Short'} OB · Confirmed` : `${side === 'BULL' ? 'Long' : 'Short'} OB · ${tp.hasSweep ? 'Swept' : 'Fresh'}`)
+                : (detail.changePct >= 0 ? 'Long build-up' : 'Short build-up');
+            return {
+                symbol: detail.symbol,
+                sector: detail.sector,
+                side,
+                price: detail.price,
+                change: detail.change,
+                changePct: detail.changePct,
+                confScore: detail.confluence?.score ?? 0,
+                confMax: detail.confluence?.maxScore ?? 6,
+                buildUpLabel,
+                support: detail.levels?.support ?? null,
+                resistance: detail.levels?.resistance ?? null,
+                obBot: tp?.bot ?? ob?.bot ?? null,
+                obTop: tp?.top ?? ob?.top ?? null,
+                entry: tp?.entry ?? null,
+                sl: tp?.sl ?? null,
+                target: tp?.target ?? null,
+                hasFvg: Boolean(tp?.hasFvg ?? ob?.hasFvg),
+                strongVol: Boolean(tp?.strongVol),
+                htfObMatch: tp?.htfObMatch || null,
+                volProfile: buildVolumeProfileBins(dayBars.length ? dayBars : rawCandles, 14),
+                miniCandles: sampleBars.map(c => ({ hm: c.time, o: c.o, h: c.h, l: c.l, c: c.c }))
+            };
+        } catch (_) {
+            const st = stockMap.get(sym);
+            if (!st) return null;
+            return {
+                symbol: st.symbol,
+                sector: st.sector,
+                side: st.changePct >= 0 ? 'BULL' : 'BEAR',
+                price: st.price,
+                change: st.change,
+                changePct: st.changePct,
+                confScore: 0,
+                confMax: 6,
+                buildUpLabel: st.changePct >= 0 ? 'Long build-up' : 'Short build-up',
+                support: null,
+                resistance: null,
+                obBot: null,
+                obTop: null,
+                volProfile: [],
+                miniCandles: []
+            };
+        }
+    };
+
+    const [featuredBull, featuredBear] = await Promise.all([
+        Promise.all(bullSyms.map(s => buildFeatured(s, 'BULL'))),
+        Promise.all(bearSyms.map(s => buildFeatured(s, 'BEAR')))
+    ]);
+
+    const niftyCurve = niftyPriceInfo?.prevClose
+        ? buildIntradayPctCurve(nifty15m, niftyPriceInfo.prevClose)
+        : [];
+
     return {
         breadth: {
             total: stocks.length,
@@ -1565,6 +1761,12 @@ async function fetchMarketXRay(todayYmd, token, marketOpen) {
             flatBand
         },
         sectors,
+        niftyMeta: niftyPriceInfo ? { price: niftyPriceInfo.price, changePct: niftyPriceInfo.changePct } : null,
+        niftyCurve,
+        featured: {
+            bull: featuredBull.filter(Boolean),
+            bear: featuredBear.filter(Boolean)
+        },
         topHigh,
         topLoss,
         nearOrderBlocks,
@@ -1902,16 +2104,25 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
         const stUp = fullSt[i]?.up;
 
         if (pos) {
+            const slReason = pos.beMoved ? 'BE' : 'SL';
             if (pos.side === 'SELL PE') {
                 const tlProtected = (c.c - pos.ref) >= 0.4 * pos.risk || stUp === false;
-                if (c.l <= pos.sl) closePos(pos.sl, 'SL', c.ts);
+                if (c.l <= pos.sl) closePos(pos.sl, slReason, c.ts);
                 else if (c.h >= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
                 else if (useTrendlineExit && justBrokeUp && tlProtected) closePos(c.c, 'TL BREAK', c.ts);
+                else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.h >= pos.ref + 0.70 * pos.risk) {
+                    pos.sl = pos.ref;
+                    pos.beMoved = true;
+                }
             } else {
                 const tlProtected = (pos.ref - c.c) >= 0.4 * pos.risk || stUp === true;
-                if (c.h >= pos.sl) closePos(pos.sl, 'SL', c.ts);
+                if (c.h >= pos.sl) closePos(pos.sl, slReason, c.ts);
                 else if (c.l <= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
                 else if (useTrendlineExit && justBrokeDown && tlProtected) closePos(c.c, 'TL BREAK', c.ts);
+                else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.l <= pos.ref - 0.70 * pos.risk) {
+                    pos.sl = pos.ref;
+                    pos.beMoved = true;
+                }
             }
         }
 
@@ -1964,7 +2175,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
                     const setup = (longOB || longFVG)
                         ? (longOB && longFVG ? 'OB+FVG' : longOB ? 'OB' : 'FVG')
                         : 'HMA-PB';
-                    pos = { side: 'SELL PE', ref, sl, tp1, risk, entryTs: c.ts, setup };
+                    pos = { side: 'SELL PE', ref, sl, tp1, risk, entryTs: c.ts, setup, beMoved: false };
                     tradesToday += 1;
                     if (longOB || longFVG) {
                         bullOB = null;
@@ -1983,7 +2194,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
                     const setup = (shortOB || shortFVG)
                         ? (shortOB && shortFVG ? 'OB+FVG' : shortOB ? 'OB' : 'FVG')
                         : 'HMA-PB';
-                    pos = { side: 'SELL CE', ref, sl, tp1, risk, entryTs: c.ts, setup };
+                    pos = { side: 'SELL CE', ref, sl, tp1, risk, entryTs: c.ts, setup, beMoved: false };
                     tradesToday += 1;
                     if (shortOB || shortFVG) {
                         bearOB = null;
@@ -2057,8 +2268,13 @@ async function runBacktestSimulation(params = {}) {
             fetchCandles15mRange(inst.upstoxKey, ist.ymd, lookbackDays + 21),
             fetchDailyCandles(inst.upstoxKey, ist.ymd, lookbackDays + 35)
         ]);
-        const trades = simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts);
-        const simBars = candles15m.filter(c => c.ymd >= simStartYmd);
+        const lastC = candles15m[candles15m.length - 1];
+        const lastMs = lastC ? Date.parse(lastC.ts) : NaN;
+        const closed15m = (candles15m.length >= 16 && Number.isFinite(lastMs) && Date.now() < (lastMs + 15 * 60 * 1000))
+            ? candles15m.slice(0, -1)
+            : candles15m;
+        const trades = simulateIndexBacktest(inst, closed15m, daily, simStartYmd, opts);
+        const simBars = closed15m.filter(c => c.ymd >= simStartYmd);
         return {
             key: inst.key,
             qty: inst.key === 'NIFTY' ? niftyQty : sensexQty,
@@ -2115,7 +2331,7 @@ async function runBacktestSimulation(params = {}) {
     const expectancyPts = totalTrades ? r1(cumPts / totalTrades) : 0;
     const expectancyRupees = totalTrades ? Math.round(cumRupees / totalTrades) : 0;
 
-    const exitReasons = ['TP1', 'TL BREAK', 'SL', 'EOD', 'OPEN'];
+    const exitReasons = ['TP1', 'TL BREAK', 'BE', 'SL', 'EOD', 'OPEN'];
     const exitBreakdown = exitReasons.map(reason => {
         const list = allTrades.filter(t => t.exitReason === reason);
         if (!list.length) return null;
@@ -2383,6 +2599,7 @@ function computeTrendFromCandles(candles) {
 function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, tf = '5m') {
     const n = candles.length;
     const atrSeries = computeBarATRSeries(candles, 14);
+    const volStats = computeVolumeStats(candles, 20);
     const lastAtr = atrSeries[n - 1] || Math.max(1, (candles[n - 1]?.c || 100) * 0.005);
     const maxAgeBars = tf === '1h' ? 24 : (tf === '15m' ? 24 : 36);
 
@@ -2395,6 +2612,8 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
         const c2 = candles[i - 2];
         const atr = Math.max(0.05, atrSeries[i] || lastAtr);
         const body = Math.abs(c.c - c.o);
+        const impVolRatio = volStats[i]?.volRatio ?? null;
+        const strongVol = Boolean(impVolRatio != null && impVolRatio >= 1.5);
         const structStart = Math.max(0, i - 4);
         let priorHigh = prev.h;
         let priorLow = prev.l;
@@ -2417,6 +2636,8 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
                     top: r2(top),
                     mid: r2((bot + top) / 2),
                     hasFvg,
+                    impulseVolRatio: impVolRatio,
+                    strongVol,
                     tests: 0,
                     status: 'fresh',
                     breakIdx: null,
@@ -2437,6 +2658,8 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
                     top: r2(top),
                     mid: r2((bot + top) / 2),
                     hasFvg,
+                    impulseVolRatio: impVolRatio,
+                    strongVol,
                     tests: 0,
                     status: 'fresh',
                     breakIdx: null,
@@ -2513,8 +2736,8 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
     const candidates = visibleOBs
         .filter(o => o.status === 'fresh' && !o.stale && o.tests === 0)
         .sort((a, b) => {
-            const scoreA = (a.hasFvg ? -0.25 : 0) + Math.abs(lastPrice - a.mid) / Math.max(1, lastAtr);
-            const scoreB = (b.hasFvg ? -0.25 : 0) + Math.abs(lastPrice - b.mid) / Math.max(1, lastAtr);
+            const scoreA = (a.hasFvg ? -0.25 : 0) - (a.strongVol ? 0.15 : 0) + Math.abs(lastPrice - a.mid) / Math.max(1, lastAtr);
+            const scoreB = (b.hasFvg ? -0.25 : 0) - (b.strongVol ? 0.15 : 0) + Math.abs(lastPrice - b.mid) / Math.max(1, lastAtr);
             return scoreA - scoreB;
         });
     if (candidates.length) {
@@ -2648,6 +2871,31 @@ function detectStockOrderBlocksAndLiquidity(candles, visStartIdx, dailyCandles, 
         support,
         structure
     };
+}
+
+function getActiveHtfObSets(tf, c15, c1h) {
+    const sets = [];
+    if (tf !== '15m' && Array.isArray(c15) && c15.length >= 15) {
+        const a15 = detectStockOrderBlocksAndLiquidity(c15, 0, [], '15m');
+        sets.push({ tf: '15m', obs: (a15.visibleOBs || []).filter(o => o.status !== 'broken' && !o.stale) });
+    }
+    if (tf !== '1h' && Array.isArray(c1h) && c1h.length >= 15) {
+        const a1h = detectStockOrderBlocksAndLiquidity(c1h, 0, [], '1h');
+        sets.push({ tf: '1h', obs: (a1h.visibleOBs || []).filter(o => o.status !== 'broken' && !o.stale) });
+    }
+    return sets;
+}
+
+function matchObAgainstHtfSets(ob, htfSets) {
+    if (!ob || !Array.isArray(htfSets) || !htfSets.length) return null;
+    const pad = ob.mid * 0.0035;
+    const matched = [];
+    for (const set of htfSets) {
+        if (set.obs.some(h => h.side === ob.side && Math.max(h.bot - pad, ob.bot) <= Math.min(h.top + pad, ob.top))) {
+            matched.push(set.tf);
+        }
+    }
+    return matched.length ? matched.join('+') : null;
 }
 
 function isObAlignedWithContext(obSide, ctx = {}) {
@@ -3013,6 +3261,7 @@ async function getStockChartAnalysis(symbol, opts = {}) {
     let planRawOb = null;
     let skippedReason = '';
     const activeRawOBs = (analysis.visibleOBs || []).filter(o => o.status === 'fresh' && !o.stale && o.tests === 0);
+    const htfSets = activeRawOBs.length ? getActiveHtfObSets(tf, c15, c1h) : [];
     const rankedPlans = [];
     for (const candidate of activeRawOBs) {
         const alignCheck = isObAlignedWithContext(candidate.side, planCtx);
@@ -3029,12 +3278,13 @@ async function getStockChartAnalysis(symbol, opts = {}) {
         }
         const obCandle = candlesAll[candidate.startIdx];
         const sameDayOb = Boolean(obCandle && obCandle.ymd === latestYmd);
-        const rankScore = plan.distPct - (liqInfo.hasSweep ? 0.08 : 0) - (liqInfo.hasLiqDraw ? 0.05 : 0) - (sameDayOb ? 0.06 : 0) - (candidate.hasFvg ? 0.04 : 0) - (plan.rr >= 2 ? 0.03 : 0);
-        rankedPlans.push({ candidate, plan, liqInfo, rankScore, sameDayOb });
+        const htfObMatch = matchObAgainstHtfSets(candidate, htfSets);
+        const rankScore = plan.distPct - (liqInfo.hasSweep ? 0.08 : 0) - (liqInfo.hasLiqDraw ? 0.05 : 0) - (sameDayOb ? 0.06 : 0) - (candidate.hasFvg ? 0.04 : 0) - (candidate.strongVol ? 0.04 : 0) - (htfObMatch ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+        rankedPlans.push({ candidate, plan, liqInfo, rankScore, sameDayOb, htfObMatch });
     }
     rankedPlans.sort((a, b) => a.rankScore - b.rankScore);
     if (rankedPlans.length) {
-        const { candidate, plan, liqInfo, sameDayOb } = rankedPlans[0];
+        const { candidate, plan, liqInfo, sameDayOb, htfObMatch } = rankedPlans[0];
         planRawOb = candidate;
         const lastRaw = candlesAll[candlesAll.length - 1];
         const prevRaw = candlesAll[candlesAll.length - 2];
@@ -3062,6 +3312,9 @@ async function getStockChartAnalysis(symbol, opts = {}) {
             status: candidate.status.toUpperCase(),
             tests: candidate.tests,
             hasFvg: Boolean(candidate.hasFvg),
+            impulseVolRatio: candidate.impulseVolRatio ?? null,
+            strongVol: Boolean(candidate.strongVol),
+            htfObMatch,
             note: entryState.entryHint + (liqInfo.hasSweep ? ` ${liqInfo.sweepLabel}.` : '') + (liqInfo.liqTargetLabel ? ` Target draw: ${liqInfo.liqTargetLabel}.` : '') + (plan.inside
                 ? ` Zone ${Number(candidate.bot).toFixed(2)}–${Number(candidate.top).toFixed(2)}.`
                 : ` ${plan.distPct}% away — limit watch near ${Number(plan.entry).toFixed(2)}.`)
@@ -3312,7 +3565,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     if (!liqInfo.liqAligned) continue;
                     const obCandle = candles[ob.startIdx];
                     const sameDayOb = Boolean(obCandle && obCandle.ymd === lastBar.ymd);
-                    const rankScore = plan.distPct - (liqInfo.hasSweep ? 0.08 : 0) - (liqInfo.hasLiqDraw ? 0.05 : 0) - (sameDayOb ? 0.06 : 0) - (ob.hasFvg ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
+                    const rankScore = plan.distPct - (liqInfo.hasSweep ? 0.08 : 0) - (liqInfo.hasLiqDraw ? 0.05 : 0) - (sameDayOb ? 0.06 : 0) - (ob.hasFvg ? 0.04 : 0) - (ob.strongVol ? 0.04 : 0) - (plan.targetPct >= 1.0 ? 0.05 : 0) - (plan.rr >= 2 ? 0.03 : 0);
                     if (!best || rankScore < best.rankScore) {
                         best = { ob, plan, liqInfo, rankScore, sameDayOb };
                     }
@@ -3337,6 +3590,7 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     obSide: ob.side,
                     bot: ob.bot,
                     top: ob.top,
+                    mid: ob.mid,
                     entry: plan.entry,
                     sl: plan.sl,
                     target: plan.target,
@@ -3359,6 +3613,8 @@ async function scanNifty50OrderBlocks(opts = {}) {
                     status: ob.status.toUpperCase(),
                     tests: ob.tests,
                     hasFvg: Boolean(ob.hasFvg),
+                    impulseVolRatio: ob.impulseVolRatio ?? null,
+                    strongVol: Boolean(ob.strongVol),
                     inside: plan.inside,
                     distPct: plan.distPct,
                     position: plan.position,
@@ -3394,6 +3650,9 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 });
                 if (!htfAligned.ok) return null;
 
+                const htfSets = getActiveHtfObSets(tf, c15, c1h);
+                const htfObMatch = matchObAgainstHtfSets({ side: item.obSide, bot: item.bot, top: item.top, mid: item.mid }, htfSets);
+
                 const desiredBull = item.action === 'BUY';
                 const checks = [
                     { label: 'Trend 15m/1h', ok: desiredBull ? (trend15m === 'Up' && trend1h !== 'Down') : (trend15m === 'Down' && trend1h !== 'Up') },
@@ -3406,9 +3665,10 @@ async function scanNifty50OrderBlocks(opts = {}) {
                 const confScore = checks.filter(c => c.ok).length;
                 const confVerdict = confScore >= 5 ? 'High Conviction' : (confScore >= 3 ? 'Tradable' : 'Partial');
 
-                const { upstoxKey, ...cleanItem } = item;
+                const { upstoxKey, mid, ...cleanItem } = item;
                 return {
                     ...cleanItem,
+                    htfObMatch,
                     trend15m,
                     trend1h,
                     confScore,
