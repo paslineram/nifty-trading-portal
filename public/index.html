@@ -384,7 +384,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
         <label>NIFTY Lot Size <input type="number" id="bt-nifty-lot" value="65" min="1"></label>
         <label>SENSEX Lot Size <input type="number" id="bt-sensex-lot" value="20" min="1"></label>
         <label>OB Max Age <input type="number" id="bt-maxage" value="25" min="5"></label>
-        <label>Risk : Reward <select id="bt-rr"><option value="1.0" selected>1 : 1.0</option><option value="1.5">1 : 1.5</option><option value="2.0">1 : 2.0</option></select></label>
+        <label>Risk : Reward <select id="bt-rr"><option value="1.0">1 : 1.0</option><option value="1.25" selected>1 : 1.25</option><option value="1.35">1 : 1.35</option><option value="1.5">1 : 1.5</option><option value="2.0">1 : 2.0</option></select></label>
         <label>Max Trades / Day <input type="number" id="bt-maxtrades" value="3" min="1" max="10"></label>
         <label>Trendline Exit <select id="bt-tlexit"><option value="true" selected>Enabled (TL Break)</option><option value="false">Disabled (SL / TP1 / EOD)</option></select></label>
         <button id="bt-run-btn" class="btn" style="margin-top:auto">Run Simulation</button>
@@ -420,7 +420,7 @@ code{background:var(--bg);padding:1px 5px;border-radius:4px;font-size:11px}
             <option value="WIN">Winners Only</option>
             <option value="LOSS">Losers Only</option>
             <option value="TL BREAK">TL Break Exits</option>
-            <option value="BE">Breakeven (BE)</option>
+            <option value="BE">Profit Lock (BE / +0.3R)</option>
           </select>
         </div>
         <table id="bt-trades-table"></table>
@@ -1216,7 +1216,7 @@ function column(d, m) {
       ${d.signals.length ? `<ul class="of-sig-list num">${d.signals.map(s => {
         const ex = s.exitReason
           ? `<b class="${s.pts > 0 ? 'upt' : s.pts < 0 ? 'dnt' : 'sub'}">${escHtml(s.exitReason)}</b> ${s.exitTime ? escHtml(s.exitTime) + ' ' : ''}@ ${s.exitPrice} (<b>${sgn(s.pts)} pts</b>)`
-          : `<b class="midt">OPEN${s.beMoved ? ' (SL @ BE)' : ''}</b>`;
+          : `<b class="midt">OPEN${s.beMoved ? ' (SL @ +0.3R)' : ''}</b>`;
         return `<li class="of-sig-item">
           <div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px;flex-wrap:wrap">
             <span>${escHtml(s.time)} <b class="${/PE/.test(s.side) ? 'upt' : 'dnt'}">${escHtml(s.side)}</b> @ <b>${s.ref}</b></span>
@@ -2943,7 +2943,7 @@ function renderSignalSummary(m) {
                   ex = `<span class="${ptsCls}">${escHtml(s.exitReason)}${s.exitTime ? ' ' + escHtml(s.exitTime) : ''}${escHtml(xpTxt)}${escHtml(ptsTxt)}</span>`;
                 } else if (d.price != null && s.ref != null) {
                   const openPts = Math.round(/PE/.test(s.side) ? (Number(d.price) - Number(s.ref)) : (Number(s.ref) - Number(d.price)));
-                  ex = `<span class="${openPts >= 0 ? 'upt' : 'dnt'}">OPEN (${sgn(openPts)} pts live${s.beMoved ? ' · SL @ BE' : ''})</span>`;
+                  ex = `<span class="${openPts >= 0 ? 'upt' : 'dnt'}">OPEN (${sgn(openPts)} pts live${s.beMoved ? ' · SL @ +0.3R' : ''})</span>`;
                 }
                 return `<tr><td>${escHtml(s.time)}</td><td class="${/PE/.test(s.side) ? 'upt' : 'dnt'}"><b>${escHtml(s.side)}</b></td><td>${fmt(s.ref)}</td><td>${fmt(s.sl)}</td><td>${fmt(s.tp1)}</td><td>${escHtml(s.setup || 'OB/FVG')}</td><td>${ex}</td><td><button type="button" class="btn" style="padding:2px 8px;font-size:11px" onclick="sendUpstoxSignalOrder('${escHtml(d.key)}', '${escHtml(s.side)}', ${Number(s.ref) || 0}, this)">Check / Send</button></td></tr>`;
               }).join('') : `<tr><td colspan="8" class="sub">${sigOn ? 'No recent signals.' : `Signals paused (Settings set to ${escHtml(m.activeInstrument || 'selected instrument')} only).`}</td></tr>`}

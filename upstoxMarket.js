@@ -437,7 +437,7 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
     const obMaxAge = 25;
     const impATR = 0.8;
     const slBuf = 0.25;
-    const rr = 1.0;
+    const rr = 1.25;
 
     // Causal trendline tracking (swing pivot window L = 3, confirmed at p + L with zero look-ahead)
     const swingL = 3;
@@ -611,10 +611,10 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 } else if (justBrokeUp && tlProtected) {
                     closePos(i, c.c, 'TL BREAK', c.ts);
                 } else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.h >= pos.ref + 0.70 * pos.risk) {
-                    pos.sl = pos.ref;
+                    pos.sl = Math.round(pos.ref + 0.30 * pos.risk);
                     pos.beMoved = true;
                     if (pos.signalRef) {
-                        pos.signalRef.sl = pos.ref;
+                        pos.signalRef.sl = pos.sl;
                         pos.signalRef.beMoved = true;
                     }
                 }
@@ -627,10 +627,10 @@ function computeSignalsAndReplay(chartCandles, fullCandles, offsetInFull, atrLat
                 } else if (justBrokeDown && tlProtected) {
                     closePos(i, c.c, 'TL BREAK', c.ts);
                 } else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.l <= pos.ref - 0.70 * pos.risk) {
-                    pos.sl = pos.ref;
+                    pos.sl = Math.round(pos.ref - 0.30 * pos.risk);
                     pos.beMoved = true;
                     if (pos.signalRef) {
-                        pos.signalRef.sl = pos.ref;
+                        pos.signalRef.sl = pos.sl;
                         pos.signalRef.beMoved = true;
                     }
                 }
@@ -2115,7 +2115,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
                 else if (c.h >= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
                 else if (useTrendlineExit && justBrokeUp && tlProtected) closePos(c.c, 'TL BREAK', c.ts);
                 else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.h >= pos.ref + 0.70 * pos.risk) {
-                    pos.sl = pos.ref;
+                    pos.sl = Math.round(pos.ref + 0.30 * pos.risk);
                     pos.beMoved = true;
                 }
             } else {
@@ -2124,7 +2124,7 @@ function simulateIndexBacktest(inst, candles15m, daily, simStartYmd, opts) {
                 else if (c.l <= pos.tp1) closePos(pos.tp1, 'TP1', c.ts);
                 else if (useTrendlineExit && justBrokeDown && tlProtected) closePos(c.c, 'TL BREAK', c.ts);
                 else if (pos.setup === 'HMA-PB' && !pos.beMoved && c.l <= pos.ref - 0.70 * pos.risk) {
-                    pos.sl = pos.ref;
+                    pos.sl = Math.round(pos.ref - 0.30 * pos.risk);
                     pos.beMoved = true;
                 }
             }
@@ -2258,7 +2258,7 @@ async function runBacktestSimulation(params = {}) {
     const niftyQty = lots * niftyLotSize;
     const sensexQty = lots * sensexLotSize;
     const obMaxAge = Math.max(5, Math.min(80, Number(params.obMaxAge) || 25));
-    const rrRatio = Math.max(0.5, Math.min(4.0, Number(params.rrRatio) || 1.0));
+    const rrRatio = Math.max(0.5, Math.min(4.0, Number(params.rrRatio) || 1.25));
     const maxTradesPerDay = Math.max(1, Math.min(10, Number(params.maxTradesPerDay) || 3));
     const useTrendlineExit = params.useTrendlineExit !== false && params.useTrendlineExit !== 'false';
 
